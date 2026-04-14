@@ -1,0 +1,19 @@
+{
+  "name": "pqc-4337-laim",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "compile": "hardhat compile 2>&1 | tee compile.log && node scripts/check-compile-warnings.cjs compile.log",
+    "test": "hardhat test",
+    "clean": "hardhat clean && rm -rf artifacts cache compile.log"
+  },
+  "devDependencies": {
+    "@account-abstraction/contracts": "^0.7.0",
+    "@noble/post-quantum": "^0.6.1",
+    "@nomicfoundation/hardhat-toolbox-viem": "^5.0.3",
+    "@types/node": "^22.19.17",
+    "hardhat": "^3.3.0",
+    "typescript": "^5.9.3",
+    "viem": "^2.43.0"
+  }
+}

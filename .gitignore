@@ -1,0 +1,23 @@
+.claude
+docs/.lock
+docs/.quick-lock
+
+# Node
+node_modules/
+
+# Hardhat
+artifacts/
+cache/
+typechain-types/
+compile.log
+
+# Coverage
+coverage/
+coverage.json
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
