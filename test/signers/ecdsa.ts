@@ -6,15 +6,11 @@
  * which SimpleAccount's `toEthSignedMessageHash().recover()` accepts byte-for-byte.
  */
 
-import {
-  bytesToHex,
-  encodeAbiParameters,
-  hexToBytes,
-  keccak256,
-} from "viem";
+import { bytesToHex, hexToBytes } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
 import type { Keypair, PackedUserOperation, UnsignedUserOp } from "./index.js";
+import { computeUserOpHash } from "./userOpHash.js";
 
 /**
  * Generate a fresh secp256k1 keypair.
@@ -34,53 +30,13 @@ export function keygen(): Keypair {
   };
 }
 
-/**
- * Compute the ERC-4337 v0.7 userOpHash over a PackedUserOperation and sign
- * it with EIP-191 prefixing.
- *
- * See EIP-4337 v0.7: userOpHash = keccak256(abi.encode(
- *   keccak256(abi.encode(packed fields...)),
- *   entryPointAddress,
- *   chainId,
- * ))
- */
 export async function signUserOp(
   secretKey: Uint8Array,
   userOp: UnsignedUserOp,
   entryPointAddress: string,
   chainId: bigint,
 ): Promise<PackedUserOperation> {
-  const inner = keccak256(
-    encodeAbiParameters(
-      [
-        { type: "address" },
-        { type: "uint256" },
-        { type: "bytes32" },
-        { type: "bytes32" },
-        { type: "bytes32" },
-        { type: "uint256" },
-        { type: "bytes32" },
-        { type: "bytes32" },
-      ],
-      [
-        userOp.sender,
-        userOp.nonce,
-        keccak256(userOp.initCode),
-        keccak256(userOp.callData),
-        userOp.accountGasLimits,
-        userOp.preVerificationGas,
-        userOp.gasFees,
-        keccak256(userOp.paymasterAndData),
-      ],
-    ),
-  );
-
-  const userOpHash = keccak256(
-    encodeAbiParameters(
-      [{ type: "bytes32" }, { type: "address" }, { type: "uint256" }],
-      [inner, entryPointAddress as `0x${string}`, chainId],
-    ),
-  );
+  const userOpHash = computeUserOpHash(userOp, entryPointAddress, chainId);
 
   const account = privateKeyToAccount(bytesToHex(secretKey));
   const signature = await account.signMessage({
