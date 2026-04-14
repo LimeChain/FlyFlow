@@ -80,13 +80,10 @@ describe("Story 1-1 smoke", () => {
     );
   });
 
-  it("mldsa keygen throws NotImplementedError with code NOT_IMPLEMENTED", () => {
-    assert.throws(
-      () => keygen("mldsa"),
-      (err: unknown) => {
-        const e = err as Error & { code?: string };
-        return e.code === "NOT_IMPLEMENTED";
-      },
-    );
+  it("mldsa keygen returns a 1312-byte ML-DSA-44 publicKey and 2560-byte secretKey", () => {
+    const { publicKey, secretKey } = keygen("mldsa");
+
+    assert.equal(publicKey.length, 1312);
+    assert.equal(secretKey.length, 2560);
   });
 });
