@@ -15,6 +15,7 @@ const config: HardhatUserConfig = {
     },
     npmFilesToBuild: [
       "@account-abstraction/contracts/core/EntryPoint.sol",
+      "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol",
     ],
   },
 };
