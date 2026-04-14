@@ -108,3 +108,49 @@ in `node_modules/`) was removed — empirically verified redundant once
 - When Hardhat is bumped, confirm the `remappings.txt` format is still
   honored (HH3's resolver is the source of truth; breaking changes
   should surface as `HHE9xx` codes during compile).
+
+---
+
+## C-003 — AC-4 source grep uses CWD-relative path
+
+**Source:** `test/accounts/ecdsa.test.ts` (AC-4 assertion)
+**First observed:** Story 2-1 code review (2026-04-14)
+**Severity:** Low (test-infra hardening)
+
+`readFile("contracts/EcdsaAccount.sol", ...)` resolves against
+`process.cwd()`. Works today because `npm test` runs from project root.
+Future runners/debuggers that set CWD elsewhere would cause ENOENT.
+Fix-when-touched: replace with
+`new URL("../../contracts/EcdsaAccount.sol", import.meta.url)`. Not
+blocking — any CWD-shift produces an ENOENT that surfaces as a test
+failure (not a silent DD-10 bypass).
+
+## C-004 — AC-4 grep narrower than DD-10 intent
+
+**Source:** `test/accounts/ecdsa.test.ts` (AC-4) vs `docs/architecture.md` DD-10
+**First observed:** Story 2-1 code review (2026-04-14)
+**Severity:** Low (literal-compliance gap)
+
+AC-4 greps only for `_validateSignature` absence. DD-10 actually forbids
+any override of SimpleAccount validation-path methods (`_validateNonce`,
+`_payPrefund`, `validateUserOp`, `execute`, etc.). Story 2-1's literal
+AC is SATISFIED. Consider widening the guard in Story 5-1 prep since
+the gas baseline depends on byte-for-byte bytecode equality with
+SimpleAccount. Practical hardening: assert `EcdsaAccount.sol` file size
+below ~700 bytes, OR extend grep to the full override surface.
+
+## C-005 — `publicKey` field type differs across schemes
+
+**Source:** `test/signers/ecdsa.ts:32` vs future `test/signers/falcon.ts`, `ml-dsa.ts`
+**First observed:** Story 2-1 code review (2026-04-14)
+**Severity:** Low (surfaces in Stories 3-1 / 4-1)
+
+ECDSA's signer stores the 20-byte Ethereum address in `Keypair.publicKey`
+(matching SimpleAccount's owner model). Falcon and ML-DSA's raw public
+keys are hundreds of bytes — not addresses. Tests cannot use
+`bytesToHex(alice.publicKey)` as an `initialize(ownerAddress)` input in
+3-1/4-1 because those accounts will verify against a public-key hash or
+the raw key itself, not a recovered-address model. Resolution belongs
+to Story 3-1's / 4-1's signer module design (how do they expose "the
+thing the account compares against"?). Flagged for story-creator-agent
+when drafting 3-1.
