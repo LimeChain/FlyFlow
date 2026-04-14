@@ -13,6 +13,9 @@ const config: HardhatUserConfig = {
       },
       evmVersion: "cancun",
     },
+    npmFilesToBuild: [
+      "@account-abstraction/contracts/core/EntryPoint.sol",
+    ],
   },
 };
 
