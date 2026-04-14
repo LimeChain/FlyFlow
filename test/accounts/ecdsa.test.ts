@@ -15,7 +15,14 @@ import { readFile } from "node:fs/promises";
 import { describe, it } from "node:test";
 
 import hre from "hardhat";
-import { bytesToHex, encodeFunctionData, hexToBytes, parseEther } from "viem";
+import {
+  BaseError,
+  ContractFunctionRevertedError,
+  bytesToHex,
+  encodeFunctionData,
+  hexToBytes,
+  parseEther,
+} from "viem";
 
 import { deployEntryPoint } from "../fixtures/entryPoint.js";
 import {
@@ -38,7 +45,7 @@ const ZERO_BYTES32 = `0x${"0".repeat(64)}` as `0x${string}`;
  * `_requireFromEntryPoint()` gate.
  */
 async function setup() {
-  const { entryPoint, publicClient, walletClients } = await deployEntryPoint();
+  const { entryPoint, publicClient } = await deployEntryPoint();
   const connection = await hre.network.connect();
   const { viem } = connection;
   const testClient = await viem.getTestClient();
@@ -74,8 +81,6 @@ async function setup() {
     alice,
     aliceAddress,
     chainId,
-    publicClient,
-    walletClients,
     testClient,
   };
 }
@@ -195,7 +200,9 @@ describe("Story 2-1 — EcdsaAccount", () => {
 
     // Accept either a `1n` return (ecrecover → different address) or an
     // OpenZeppelin ECDSA revert (malleability / invalid-signature class).
-    // Both satisfy AC-3's "not SUCCESS" intent.
+    // Both satisfy AC-3's "not SUCCESS" intent. Rethrow any unrelated
+    // error so test-infrastructure regressions don't masquerade as
+    // valid rejections.
     let validationData: bigint | null = null;
     let reverted = false;
     try {
@@ -205,8 +212,24 @@ describe("Story 2-1 — EcdsaAccount", () => {
         corrupted,
         userOpHash,
       );
-    } catch {
-      reverted = true;
+    } catch (err) {
+      if (err instanceof BaseError) {
+        const revert = err.walk(
+          (e) => e instanceof ContractFunctionRevertedError,
+        ) as ContractFunctionRevertedError | null;
+        const name = revert?.data?.errorName;
+        if (
+          name === "ECDSAInvalidSignature" ||
+          name === "ECDSAInvalidSignatureS" ||
+          name === "ECDSAInvalidSignatureLength"
+        ) {
+          reverted = true;
+        } else {
+          throw err;
+        }
+      } else {
+        throw err;
+      }
     }
 
     assert.ok(
