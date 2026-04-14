@@ -1,0 +1,2 @@
+InterfaceVerifier/=ETHFALCON/lib/InterfaceVerifier/src/
+sstore2/=ETHFALCON/lib/sstore2/contracts/

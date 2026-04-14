@@ -1,0 +1,6 @@
+[submodule "ETHFALCON"]
+	path = ETHFALCON
+	url = https://github.com/ZKNoxHQ/ETHFALCON.git
+[submodule "ETHDILITHIUM"]
+	path = ETHDILITHIUM
+	url = https://github.com/ZKNoxHQ/ETHDILITHIUM.git
