@@ -11,8 +11,16 @@
  *
  * Two-step capture (simulate then write): viem's `write.*` returns the tx
  * hash, not the Solidity return value. To capture the pointer bytes we
- * `simulateContract` first (returns `result.result`), then `write` to
- * actually persist on-chain — same pattern Story 3-1 documents for Falcon.
+ * `simulate.setKey` first (returns `result.result`), then `write.setKey`
+ * to actually persist on-chain.
+ *
+ * Cross-fixture network sharing: HH3's `hre.network.connect()` returns an
+ * isolated EdrProvider per call. Deploying the verifier on a separate
+ * connection from the account would point `MlDsaAccount.dilithiumVerifier`
+ * at an empty address on the account's chain — staticcall returns no data
+ * and the bytes4 decode reverts (caught as `SignatureMalformed`). Callers
+ * that compose multiple fixtures must pass an existing `viem` instance so
+ * all contracts land on the same chain.
  *
  * Ref: ETHDILITHIUM/src/ZKNOX_dilithium.sol:23 (setKey returns abi.encodePacked(pointer))
  */
@@ -22,30 +30,30 @@ import { hexToBytes, type Hex } from "viem";
 
 import { preparePublicKeyForDeployment } from "../signers/mldsa-encoding.js";
 
-export async function deployDilithiumVerifier() {
-  const connection = await hre.network.connect();
-  const { viem } = connection;
+type ViemConnection = Awaited<ReturnType<typeof hre.network.connect>>["viem"];
 
-  const publicClient = await viem.getPublicClient();
-  const walletClients = await viem.getWalletClients();
-  const dilithiumVerifier = await viem.deployContract("ZKNOX_dilithium");
+export async function deployDilithiumVerifier(viem?: ViemConnection) {
+  const v: ViemConnection = viem ?? (await hre.network.connect()).viem;
+
+  const publicClient = await v.getPublicClient();
+  const walletClients = await v.getWalletClients();
+  const dilithiumVerifier = await v.deployContract("ZKNOX_dilithium");
 
   return { dilithiumVerifier, publicClient, walletClients };
 }
 
 export async function registerPublicKey(
   dilithiumVerifier: Awaited<ReturnType<typeof deployDilithiumVerifier>>["dilithiumVerifier"],
-  publicClient: Awaited<ReturnType<typeof deployDilithiumVerifier>>["publicClient"],
   rawPublicKey: Uint8Array,
 ): Promise<Hex> {
   const encoded = preparePublicKeyForDeployment(rawPublicKey);
 
-  const { result: pointerHex } = await publicClient.simulateContract({
-    address: dilithiumVerifier.address,
-    abi: dilithiumVerifier.abi,
-    functionName: "setKey",
-    args: [encoded],
-  });
+  // Use the contract's bound simulate/write so the calls hit the same
+  // network the verifier was deployed on. Fixtures open their own
+  // `hre.network.connect()`, so a publicClient from a different fixture
+  // (e.g. the EntryPoint fixture) targets a different chain — calling
+  // setKey there hits an unrelated contract at the same address.
+  const { result: pointerHex } = await dilithiumVerifier.simulate.setKey!([encoded]);
 
   // viem's typed contract narrows write methods as possibly undefined; the
   // method exists at runtime — same pattern as test/accounts/ecdsa.test.ts.
