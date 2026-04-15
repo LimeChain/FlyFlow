@@ -1,0 +1,44 @@
+[
+  {
+    "scheme": "ecdsa",
+    "status": "ok",
+    "runs": [
+      "76098",
+      "76110",
+      "76110"
+    ],
+    "mean": "76106",
+    "variance": 0.00015767482195884686,
+    "totalGas": "76098",
+    "calldataGas": "1028",
+    "executionGas": "75070"
+  },
+  {
+    "scheme": "falcon",
+    "status": "ok",
+    "runs": [
+      "3836347",
+      "4089948",
+      "4091699"
+    ],
+    "mean": "4005998",
+    "variance": 0.06374241824384336,
+    "totalGas": "3836347",
+    "calldataGas": "14384",
+    "executionGas": "3821963"
+  },
+  {
+    "scheme": "mldsa",
+    "status": "ok",
+    "runs": [
+      "8349804",
+      "8466463",
+      "8380383"
+    ],
+    "mean": "8398883",
+    "variance": 0.013889823206252545,
+    "totalGas": "8349804",
+    "calldataGas": "38420",
+    "executionGas": "8311384"
+  }
+]
