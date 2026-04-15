@@ -121,6 +121,52 @@ describe("renderReport", () => {
     );
   });
 
+  it("escapes pipe in reason so the table column count is preserved", () => {
+    const results: BenchResult[] = [
+      ok("ecdsa", 100_000n, 1_000n),
+      {
+        scheme: "falcon",
+        status: "failed",
+        reason: "AA23 reverted | inner data | more pipes",
+      },
+      ok("mldsa", 8_000_000n, 38_000n),
+    ];
+    const md = renderReport(results, FIXED_TS);
+    const failedRow = md
+      .split("\n")
+      .find((l) => /^\| falcon \| FAILED \|/.test(l));
+    assert.ok(failedRow, "failed row should be present");
+    // Count UNESCAPED pipes in the row — escaped `\|` must not count.
+    const unescapedPipes = failedRow!.replace(/\\\|/g, "").split("|").length - 1;
+    // Header row has 9 columns → 10 pipe characters.
+    const header = md
+      .split("\n")
+      .find((l) => l.startsWith("| Scheme |"));
+    const headerPipes = header!.split("|").length - 1;
+    assert.equal(
+      unescapedPipes,
+      headerPipes,
+      `failed row pipe count (${unescapedPipes}) must match header (${headerPipes})`,
+    );
+    // Footnote preserves the pipes as-is (raw reason — not in a table cell).
+    assert.match(md, /AA23 reverted \| inner data \| more pipes/);
+  });
+
+  it("rounds percentages half-up to one decimal place", () => {
+    // Falcon total = 100_000 + 1_385 = 101_385 → calldata% = 1.366… → 1.4%
+    // Construct a record that targets boundary behavior.
+    const results: BenchResult[] = [
+      ok("ecdsa", 100_000n, 1_000n),
+      ok("falcon", 101_385n, 1_385n), // calldataGas = 1385, exec = 100000
+      ok("mldsa", 200_000n, 2_000n),
+    ];
+    const md = renderReport(results, FIXED_TS);
+    // 1385 / 101385 = 1.3661...% → rounds half-up to 1.4%
+    assert.match(md, /1385 \(1\.4%\)/);
+    // overhead falcon: (101385 - 100000)/100000 = 1.385% → +1.4%
+    assert.match(md, /\+1\.4%/);
+  });
+
   it("input validation: rejects missing scheme", () => {
     const results: BenchResult[] = [
       ok("ecdsa", 100n, 10n),

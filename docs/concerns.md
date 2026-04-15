@@ -233,6 +233,25 @@ Story 5-1's benchmark loop will surface any remaining flake at higher
 sample counts; if the loop runs cleanly, downgrade to "monitor only";
 if it re-flakes, re-open with the captured error name.
 
+**Update 2026-04-15 (Story 5-2 final-suite gate):** AC-3 re-failed twice
+consecutively during the Story 5-2 verification loop. The revert text is
+the expected `ECDSAInvalidSignature()`, but **viem's error walk does not
+expose it as a `ContractFunctionRevertedError.data.errorName`** — the
+chain is `ContractFunctionExecutionError → CallExecutionError →
+UnknownRpcError → Error`. Because `revert?.data?.errorName` is
+`undefined`, the predicate's `else throw err` branch fires and the
+documented "expected" rejection class never matches. Story 5-2 changes
+touch only `scripts/`, `test/scripts/`, `docs/`, `README.md`, and
+`package.json` — none are in any ECDSA path, confirming this is a
+pre-existing C-006 manifestation, not a regression.
+
+Recommended fix (when next touched): broaden the AC-3 predicate to also
+accept the substring `ECDSAInvalidSignature` / `ECDSAInvalidSignatureS` /
+`ECDSAInvalidSignatureLength` in `err.shortMessage` or `err.details`
+when no structured `ContractFunctionRevertedError` is found in the walk
+chain. This preserves the "rethrow unrelated errors" guard while
+surviving viem's inconsistent custom-error decoding.
+
 ## C-007 — Story 3-1 paused on Falcon JS encoding bridge
 
 **Source:** Story 3-1 / Task 4 (encoding bridge)

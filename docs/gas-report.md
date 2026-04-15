@@ -1,13 +1,13 @@
 # PQC ERC-4337 Gas Comparison
 
-_Generated: 2026-04-15T10:28:54.960Z_
+_Generated: 2026-04-15T10:33:29.127Z_
 _Source: `test/bench/gas-data.json` (produced by Story 5-1 benchmark)._
 
 | Scheme | Status | Total gas | Calldata (gas, %) | Execution (gas, %) | Overhead vs ECDSA | Variance | Notes |
 |---|---|---:|---:|---:|---:|---:|---|
-| ecdsa | ok | 76110 | 1040 (1.3%) | 75070 (98.6%) | — | 0.00e+0 |  |
-| falcon | ok | 3836741 | 14288 (0.3%) | 3822453 (99.6%) | +4941.0% | 6.53e-2 |  |
-| mldsa | ok | 8286990 | 38348 (0.4%) | 8248642 (99.5%) | +10788.1% | 1.48e-2 |  |
+| ecdsa | ok | 76110 | 1040 (1.4%) | 75070 (98.6%) | — | 0.00e+0 |  |
+| falcon | ok | 3836741 | 14288 (0.4%) | 3822453 (99.6%) | +4941.0% | 6.53e-2 |  |
+| mldsa | ok | 8286990 | 38348 (0.5%) | 8248642 (99.5%) | +10788.2% | 1.48e-2 |  |
 
 ## Notes
 

@@ -57,21 +57,31 @@ export function hydrate(raw: RawBenchResult): BenchResult {
   };
 }
 
+function fmtBpToPct(bp: bigint): string {
+  // Convert basis points (×100 of percent) to one-decimal percent with
+  // half-up rounding. bp/10 yields tenths-of-percent; rounding the units
+  // digit before truncation gives proper half-up behavior.
+  const tenths = (bp + 5n) / 10n;
+  const wholePct = tenths / 10n;
+  const fracDigit = tenths % 10n;
+  return `${wholePct}.${fracDigit}%`;
+}
+
 function pct(part: bigint, whole: bigint): string {
-  const bp = (part * 10000n) / whole;
-  const whole100 = bp / 100n;
-  const frac = bp % 100n;
-  return `${whole100}.${frac.toString().padStart(2, "0").slice(0, 1)}%`;
+  return fmtBpToPct((part * 10000n) / whole);
 }
 
 function overheadPct(scheme: bigint, baseline: bigint): string {
   const diff = scheme - baseline;
   const negative = diff < 0n;
   const abs = negative ? -diff : diff;
-  const bp = (abs * 10000n) / baseline;
-  const whole100 = bp / 100n;
-  const frac = bp % 100n;
-  return `${negative ? "-" : "+"}${whole100}.${frac.toString().padStart(2, "0").slice(0, 1)}%`;
+  return `${negative ? "-" : "+"}${fmtBpToPct((abs * 10000n) / baseline)}`;
+}
+
+function escapeMarkdownCell(s: string): string {
+  // Pipe and backslash are GFM table cell delimiters / escapes. A `|`
+  // inside a reason string breaks the column count silently.
+  return s.replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
 }
 
 function fmtVariance(v: number): string {
@@ -105,7 +115,10 @@ export function renderReport(
   }
 
   const byScheme = new Map(results.map((r) => [r.scheme, r]));
-  const ecdsa = byScheme.get("ecdsa")!;
+  const ecdsa = byScheme.get("ecdsa");
+  if (ecdsa === undefined) {
+    throw new Error("missing scheme in input: ecdsa");
+  }
   const baselineAvailable = ecdsa.status === "ok";
   const baselineTotal = ecdsa.status === "ok" ? ecdsa.totalGas : null;
 
@@ -132,9 +145,10 @@ export function renderReport(
 
   const footnotes: string[] = [];
   for (const scheme of SCHEMES) {
-    const r = byScheme.get(scheme)!;
+    const r = byScheme.get(scheme);
+    if (r === undefined) continue;
     if (r.status === "failed") {
-      const note = `FAILED: ${truncReason(r.reason)}`;
+      const note = `FAILED: ${escapeMarkdownCell(truncReason(r.reason))}`;
       lines.push(`| ${scheme} | FAILED | — | — | — | n/a | — | ${note} |`);
       footnotes.push(
         `- **${scheme} failure reason:** ${r.reason.replace(/\s+/g, " ").trim()}`,
@@ -148,8 +162,10 @@ export function renderReport(
       overheadCell = "n/a";
     } else if (scheme === "ecdsa") {
       overheadCell = "—";
+    } else if (baselineTotal !== null) {
+      overheadCell = overheadPct(r.totalGas, baselineTotal);
     } else {
-      overheadCell = overheadPct(r.totalGas, baselineTotal!);
+      overheadCell = "n/a";
     }
     lines.push(
       `| ${scheme} | ok | ${r.totalGas} | ${calldataCell} | ${executionCell} | ${overheadCell} | ${fmtVariance(r.variance)} |  |`,

@@ -3,42 +3,42 @@
     "scheme": "ecdsa",
     "status": "ok",
     "runs": [
-      "76110",
+      "76098",
       "76110",
       "76110"
     ],
-    "mean": "76110",
-    "variance": 0,
-    "totalGas": "76110",
-    "calldataGas": "1040",
+    "mean": "76106",
+    "variance": 0.00015767482195884686,
+    "totalGas": "76098",
+    "calldataGas": "1028",
     "executionGas": "75070"
   },
   {
     "scheme": "falcon",
     "status": "ok",
     "runs": [
-      "3836741",
-      "4092391",
-      "3836203"
+      "4090133",
+      "3835809",
+      "4091711"
     ],
-    "mean": "3921778",
-    "variance": 0.06532445232749023,
-    "totalGas": "3836741",
-    "calldataGas": "14288",
-    "executionGas": "3822453"
+    "mean": "4005884",
+    "variance": 0.06388153026897433,
+    "totalGas": "4090133",
+    "calldataGas": "14396",
+    "executionGas": "4075737"
   },
   {
     "scheme": "mldsa",
     "status": "ok",
     "runs": [
-      "8286990",
-      "8349057",
-      "8410388"
+      "8378436",
+      "8465715",
+      "8318888"
     ],
-    "mean": "8348811",
-    "variance": 0.014780308237903578,
-    "totalGas": "8286990",
-    "calldataGas": "38348",
-    "executionGas": "8248642"
+    "mean": "8387679",
+    "variance": 0.017505080964591038,
+    "totalGas": "8378436",
+    "calldataGas": "38420",
+    "executionGas": "8340016"
   }
 ]
