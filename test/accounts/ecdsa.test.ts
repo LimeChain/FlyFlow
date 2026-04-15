@@ -203,6 +203,20 @@ describe("Story 2-1 — EcdsaAccount", () => {
     // Both satisfy AC-3's "not SUCCESS" intent. Rethrow any unrelated
     // error so test-infrastructure regressions don't masquerade as
     // valid rejections.
+    //
+    // Two decoding paths are checked in order:
+    //   1. Structured: viem.walk → ContractFunctionRevertedError.data.errorName
+    //      (works when the revert selector is in the contract's ABI)
+    //   2. Substring: HH3's EDR returns library-error reverts as plaintext
+    //      ("reverted with custom error 'ECDSAInvalidSignature()'") in
+    //      err.shortMessage / err.details rather than as structured data, so
+    //      viem cannot decode them via ABI lookup. Without this fallback
+    //      AC-3 fails non-deterministically — this is C-006.
+    const ECDSA_REVERT_NAMES = [
+      "ECDSAInvalidSignature",
+      "ECDSAInvalidSignatureS",
+      "ECDSAInvalidSignatureLength",
+    ] as const;
     let validationData: bigint | null = null;
     let reverted = false;
     try {
@@ -218,11 +232,13 @@ describe("Story 2-1 — EcdsaAccount", () => {
           (e) => e instanceof ContractFunctionRevertedError,
         ) as ContractFunctionRevertedError | null;
         const name = revert?.data?.errorName;
-        if (
-          name === "ECDSAInvalidSignature" ||
-          name === "ECDSAInvalidSignatureS" ||
-          name === "ECDSAInvalidSignatureLength"
-        ) {
+        const haystack = `${err.shortMessage ?? ""}\n${err.details ?? ""}\n${err.message ?? ""}`;
+        const matchesByName =
+          name !== undefined && (ECDSA_REVERT_NAMES as readonly string[]).includes(name);
+        const matchesByMessage = ECDSA_REVERT_NAMES.some((n) =>
+          haystack.includes(`${n}(`),
+        );
+        if (matchesByName || matchesByMessage) {
           reverted = true;
         } else {
           throw err;

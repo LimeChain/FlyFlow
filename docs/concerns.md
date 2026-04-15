@@ -160,7 +160,7 @@ the 20-byte SSTORE2 pointer returned by `ISigVerifier.setKey(rawKey)`;
 the signer module's `Keypair.publicKey` continues to hold the raw
 NIST-encoded key. See `docs/amendments.md#A-003`.
 
-## C-006 — Flaky AC-1/AC-3 in `ecdsa.test.ts` (intermittent ECDSAInvalidSignature revert)
+## C-006 — Flaky AC-1/AC-3 in `ecdsa.test.ts` (intermittent ECDSAInvalidSignature revert) [RESOLVED 2026-04-15]
 
 **Source:** `test/accounts/ecdsa.test.ts` AC-1 (`valid owner signature returns SIG_VALIDATION_SUCCESS`) and AC-3 (`bit-flipped signature is rejected`)
 **First observed:** Story 3-1 baseline snapshot (2026-04-15, AC-1 variant). AC-3 variant observed during Story 4-2 Task 3 full-suite gate (2026-04-15) — re-run cleanly passed 28/28.
@@ -251,6 +251,32 @@ accept the substring `ECDSAInvalidSignature` / `ECDSAInvalidSignatureS` /
 when no structured `ContractFunctionRevertedError` is found in the walk
 chain. This preserves the "rethrow unrelated errors" guard while
 surviving viem's inconsistent custom-error decoding.
+
+**Resolution 2026-04-15 (post-Story-5-2 quick fix):** Investigation
+found the root cause is **HH3's EDR returning library-defined custom
+error reverts as plaintext rather than as structured JSON-RPC `error.data`
+selectors**. Solidity does not propagate library custom errors into the
+using-contract's compiled ABI (`ECDSA.sol` errors are absent from
+`EcdsaAccount` artifact), which previously triggered hypotheses about
+ABI-merge fixes — but those don't help when EDR strips the selector
+data before viem can decode it. The conventional ecosystem patterns
+(`@nomicfoundation/hardhat-chai-matchers`'
+`revertedWithCustomError(libContract, ...)` and OZ's library-mock
+trick) all rely on viem receiving raw selector data; HH3 EDR's plaintext
+formatting bypasses them.
+
+Applied the substring-fallback fix recommended above:
+`test/accounts/ecdsa.test.ts` AC-3 predicate now matches both the
+structured `ContractFunctionRevertedError.data.errorName` AND a
+substring scan of `err.shortMessage` / `err.details` / `err.message`
+for `ECDSAInvalidSignature(`, `ECDSAInvalidSignatureS(`, or
+`ECDSAInvalidSignatureLength(` (closing-paren anchored to avoid
+accidental false matches in unrelated diagnostic text). Rethrow-on-
+unrelated-error guard preserved.
+
+Verification: `test/accounts/ecdsa.test.ts` ran 3× cleanly (4/4 each
+run). Full `npx hardhat test` returns 42/42. Flake removed from
+state.json `baselineTests.flakyKnown`. Concern closed.
 
 ## C-007 — Story 3-1 paused on Falcon JS encoding bridge
 

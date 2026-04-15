@@ -3,7 +3,7 @@
   "flow": "greenfield",
   "version": "next-2.0",
   "created": "2026-04-11T11:20:05.883Z",
-  "lastUpdated": "2026-04-15T10:42:00.000Z",
+  "lastUpdated": "2026-04-15T10:55:00.000Z",
   "currentPhase": "implement",
   "currentStep": null,
   "currentCheckpoint": null,
@@ -201,10 +201,7 @@
     "noInfra": false,
     "baselinedAt": "2026-04-15T10:42:00.000Z",
     "baselinedAtStory": 8,
-    "flakyKnown": [
-      "Story 2-1 — EcdsaAccount > AC-1: valid owner signature returns SIG_VALIDATION_SUCCESS",
-      "Story 2-1 — EcdsaAccount > AC-3: bit-flipped signature is rejected"
-    ]
+    "flakyKnown": []
   },
   "waveStrategy": {},
   "devops": {
