@@ -79,6 +79,8 @@ epics:
         slug: report-generator
         title: Report generator + README run instructions
         size: M
-        status: backlog
+        status: done
         wave: 4
         dependencies: ["5-1"]
+        completed_at: "2026-04-15"
+        gate5: pass
