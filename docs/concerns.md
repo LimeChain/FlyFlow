@@ -202,6 +202,37 @@ consumers (3-1's userOpHash extraction in Task 3, 5-1's benchmark loop)
 inherit it. Not blocking Story 3-1 — Story 3-1 doesn't re-sign with
 ECDSA in its happy path.
 
+**Update 2026-04-15 (Story 5-1 Task 1):** Low-S normalization landed in
+`test/signers/ecdsa.ts::normalizeLowS` with unit coverage at
+`test/signers/ecdsa.test.ts` (4 tests). However, an empirical probe of
+viem 2.47.17's `signMessage` over 200 samples produced **0 high-S
+signatures and a 27/28 split of 101/99 on `v`** — viem already enforces
+low-S (consistent with `@noble/curves` `lowS: true` default since v1.x).
+This means the normalization is **defensively correct but a no-op against
+current viem**, so it cannot be the actual cause of the C-006 flake.
+
+The true root cause therefore remains **unidentified**. Surviving
+hypotheses for AC-1 (valid-signer, no corruption):
+- HH3 EDR initialization race during fixture setup that occasionally
+  routes the signature against a different chain id / nonce snapshot.
+- viem `signMessage`'s `{ message: { raw } }` path returning under
+  asynchronous reordering when multiple parallel `signMessage` calls
+  overlap in the same test process (none currently overlap, but worth
+  monitoring under Story 5-1's loop).
+- Transient EOA pre-image collision (cosmically unlikely; ignore).
+
+For AC-3 (bit-flipped signature): the test predicate already accepts
+`ECDSAInvalidSignature` / `…SignatureS` / `…SignatureLength` as a valid
+"rejection" outcome, so the originally-reported AC-3 failure was likely
+a different revert error name reaching the predicate's `else throw err`
+branch. Re-investigate by capturing the next AC-3 revert's
+`error.data.errorName` verbatim before discarding.
+
+Status: **kept open**. Low-S guard stays in place as cheap defense.
+Story 5-1's benchmark loop will surface any remaining flake at higher
+sample counts; if the loop runs cleanly, downgrade to "monitor only";
+if it re-flakes, re-open with the captured error name.
+
 ## C-007 — Story 3-1 paused on Falcon JS encoding bridge
 
 **Source:** Story 3-1 / Task 4 (encoding bridge)
