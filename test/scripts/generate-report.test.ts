@@ -11,7 +11,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { renderReport, type BenchResult } from "./generate-report.ts";
+import { renderReport, type BenchResult } from "../../scripts/generate-report.ts";
 
 const FIXED_TS = "2026-04-15T10:30:00.000Z";
 
