@@ -1,0 +1,218 @@
+{
+  "feature": "pqc-4337",
+  "flow": "greenfield",
+  "version": "next-2.0",
+  "created": "2026-04-11T11:20:05.883Z",
+  "lastUpdated": "2026-04-15T01:20:00.000Z",
+  "currentPhase": "implement",
+  "currentStep": null,
+  "currentCheckpoint": null,
+  "currentStory": null,
+  "complexityTier": "medium",
+  "contextWarnings": false,
+  "phases": {
+    "research": {
+      "status": "complete",
+      "startedAt": "2026-04-11T11:26:18.000Z",
+      "completedAt": "2026-04-11T13:46:34.000Z",
+      "gateResult": "pass"
+    },
+    "specify": {
+      "status": "complete",
+      "startedAt": "2026-04-11T13:46:34.000Z",
+      "completedAt": "2026-04-11T16:49:23.000Z",
+      "gateResult": "pass"
+    },
+    "architecture": {
+      "status": "complete",
+      "startedAt": "2026-04-12T14:21:38.000Z",
+      "completedAt": "2026-04-12T18:52:00.000Z",
+      "gateResult": "pass"
+    },
+    "plan": {
+      "status": "complete",
+      "startedAt": "2026-04-13T12:49:08.000Z",
+      "completedAt": "2026-04-13T14:02:53.000Z",
+      "gateResult": "pass"
+    }
+  },
+  "storiesDone": 4,
+  "storiesTotal": 8,
+  "changeStories": [],
+  "tooling": {
+    "format": null,
+    "lint": null,
+    "lint_fix": null,
+    "build": "npm run compile",
+    "test": "npx hardhat test",
+    "test_changed": null,
+    "test_report": null,
+    "security": null
+  },
+  "metrics": {
+    "gates": {
+      "passes": 6,
+      "fails": 0,
+      "overrides": 0,
+      "backNavigations": 0,
+      "blockingFails": 0
+    },
+    "phases": {
+      "research": {
+        "durationMinutes": 140,
+        "revisions": 0,
+        "gateAttempts": 1
+      },
+      "specify": {
+        "durationMinutes": 183,
+        "revisions": 1,
+        "gateAttempts": 1,
+        "personaCount": 3,
+        "personaConcerns": 6
+      },
+      "architecture": {
+        "durationMinutes": 270,
+        "revisions": 3,
+        "gateAttempts": 1,
+        "deferredDecisions": 1,
+        "resolvedDecisions": 1
+      },
+      "plan": {
+        "durationMinutes": 74,
+        "revisions": 2,
+        "gateAttempts": 1,
+        "wavesPlanned": 4
+      }
+    },
+    "stories": {
+      "completed": 4,
+      "skipped": 0,
+      "preTagSkipped": [
+        "1-1",
+        "2-1"
+      ],
+      "changeStoriesCreated": 0,
+      "gate5Passes": 4,
+      "gate5Fails": 0,
+      "gate5Overrides": 0,
+      "avgTasksPerStory": 5.5,
+      "sizeDistribution": {
+        "S": 3,
+        "M": 5,
+        "L": 0
+      }
+    },
+    "tasks": {
+      "totalCompleted": 22,
+      "totalCompletedNoCommit": 1,
+      "totalSkipped": 0,
+      "totalRevisions": 0,
+      "totalVerificationCycles": 0,
+      "firstPassSuccess": 0,
+      "tddCount": 0,
+      "tddTotal": 0,
+      "avgVerificationCycles": 0
+    },
+    "codeReview": {
+      "reviewsRun": 2,
+      "totalFindings": 12,
+      "criticalFindings": 0,
+      "highFindings": 0,
+      "mediumFindings": 2,
+      "lowFindings": 10,
+      "findingsDeferred": 6
+    },
+    "quality": {
+      "interfaceAudits": 4,
+      "interfaceMismatches": 0,
+      "amendments": 4,
+      "concerns": 6,
+      "concernsBySeverity": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 5
+      }
+    },
+    "drift": {
+      "taskDeviations": 1,
+      "storiesResizedDuringImpl": 0
+    },
+    "estimation": {
+      "sizeAccuracy": {
+        "S": {
+          "planned": 0,
+          "avgActualTasks": 0
+        },
+        "M": {
+          "planned": 0,
+          "avgActualTasks": 0
+        },
+        "L": {
+          "planned": 0,
+          "avgActualTasks": 0
+        }
+      }
+    },
+    "execution": {
+      "totalSessions": 6,
+      "pauseResumeCount": 7,
+      "agentTeamsUsed": false,
+      "parallelWaves": 0,
+      "parallelStories": 0,
+      "subagentSpawns": 9
+    },
+    "optionalSkills": {
+      "designer": {
+        "used": false,
+        "mode": null,
+        "completedAt": null
+      },
+      "devopsPass1": {
+        "used": false,
+        "completedAt": null
+      },
+      "devopsPass2": {
+        "used": false,
+        "completedAt": null
+      },
+      "qa": {
+        "used": false,
+        "completedAt": null
+      },
+      "notion": {
+        "used": false,
+        "syncCount": 0,
+        "completedAt": null
+      }
+    },
+    "git": {
+      "totalCommits": 11,
+      "totalFilesChanged": 30,
+      "totalInsertions": 9275,
+      "totalDeletions": 33,
+      "testsAdded": 13
+    }
+  },
+  "baselineTests": {
+    "total": 22,
+    "passing": 22,
+    "failing": 0,
+    "noInfra": false,
+    "baselinedAt": "2026-04-15T01:20:00.000Z",
+    "baselinedAtStory": 4,
+    "flakyKnown": [
+      "Story 2-1 — EcdsaAccount > AC-1: valid owner signature returns SIG_VALIDATION_SUCCESS"
+    ]
+  },
+  "waveStrategy": {},
+  "devops": {
+    "pass1": "pending",
+    "pass2": "pending",
+    "pass2Partial": false
+  },
+  "compacted": {
+    "at": "2026-04-15T00:49:26.249Z",
+    "trigger": "unknown"
+  }
+}
