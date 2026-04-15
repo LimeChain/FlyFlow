@@ -1,8 +1,10 @@
 ---
 id: "3-2"
 slug: falcon-failure-classes
-status: draft
+status: complete
 created: 2026-04-15
+completed_at: 2026-04-15
+gate5: pass
 ---
 
 # Story: Falcon failure-class tests

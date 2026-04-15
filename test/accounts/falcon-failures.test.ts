@@ -198,6 +198,7 @@ describe("Story 3-2 — FalconAccount failure classes", () => {
     { timeout: 120_000 },
     async () => {
       const { entryPoint, account, alice, chainId } = await setup();
+      const accountAddress = account.address.toLowerCase();
 
       const userOp = buildUnsignedUserOp(account.address);
       const signed = await signUserOp(
@@ -236,8 +237,15 @@ describe("Story 3-2 — FalconAccount failure classes", () => {
           // HH3 EDR path: the revert surfaces as a `SolidityError` at the chain
           // tail and viem's decoder doesn't populate `errorName`, but the EDR
           // message text deterministically contains "SignatureMalformed()".
-          // Match on the full error message (includes the EDR text).
-          return /custom error 'SignatureMalformed\(\)'/.test(err.message);
+          // Bind the match to the account-under-test's address so that a future
+          // co-defined `SignatureMalformed()` in a sibling contract (e.g. when
+          // Story 4-2 introduces ML-DSA failure tests) can't spuriously satisfy
+          // this predicate.
+          const message = err.message.toLowerCase();
+          return (
+            /custom error 'signaturemalformed\(\)'/.test(message) &&
+            message.includes(accountAddress)
+          );
         },
       );
     },

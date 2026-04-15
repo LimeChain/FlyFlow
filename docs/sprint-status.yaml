@@ -37,9 +37,11 @@ epics:
         slug: falcon-failure-classes
         title: Falcon failure-class tests
         size: S
-        status: backlog
+        status: done
         wave: 3
         dependencies: ["3-1"]
+        completed_at: "2026-04-15"
+        gate5: pass
   - id: 4
     name: ML-DSA Account
     stories:

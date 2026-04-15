@@ -390,3 +390,38 @@ PR introduces solc type-of operations.
 
 Both eligible for a single follow-up commit during a future quality-cycle
 pass. Neither blocks Story 3-1 Gate 5 or Story 3-2 entry.
+
+---
+
+## C-010 — Story 3-2 code review deferral (LOW)
+
+**Source:** Adversarial code review of Story 3-2 (FalconAccount failure-class
+tests), 2026-04-15.
+**Severity:** LOW (perf-only)
+
+Review surfaced 3 findings, all LOW. Finding 1 (AC-3 predicate binding to
+origin contract) was applied inline during the review cycle. Finding 2 was
+no-action (intentional mirroring of happy-path setup signature). Finding 3
+is accepted as a perf deferral.
+
+### C-010.1 — Wasted Falcon signing in AC-3 setup
+
+`test/accounts/falcon-failures.test.ts:~200-212`. AC-3 signs a valid UserOp
+with Alice's key to obtain `userOpHash`, then discards the signature and
+replaces it with 100 zero bytes. Since `canonicalUserOpHash` calls the
+EntryPoint's `getUserOpHash` which hashes only the non-signature fields per
+ERC-4337, the Alice-sign step is dead work — any placeholder signature
+produces the same hash. Current cost is one ~230ms Falcon sign per AC-3 run.
+
+**Why not fix now:** trivial perf win; the `{ timeout: 120_000 }` ceiling
+absorbs the waste, and rewriting the helper would distract from closing
+Story 3-2 Gate 5. The more natural place to optimize PQC test setup is
+Story 5-1 (gas/perf benchmark), which will profile the whole path anyway.
+
+**Fix-when-touched:** replace the sign step in AC-3 with
+`{ ...userOp, signature: "0x" } as unknown as PackedUserOperation` before
+calling `canonicalUserOpHash`, or introduce a `buildPackedUnsigned()` helper
+shared with the happy-path fixture.
+
+**Re-evaluation triggers:** Story 5-1 entry, OR someone else touches the
+AC-3 block (touch-test-fix rule).
