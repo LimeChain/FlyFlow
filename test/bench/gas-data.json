@@ -17,28 +17,28 @@
     "scheme": "falcon",
     "status": "ok",
     "runs": [
-      "3836347",
-      "4089948",
-      "4091699"
+      "4094012",
+      "4092857",
+      "3835343"
     ],
-    "mean": "4005998",
-    "variance": 0.06374241824384336,
-    "totalGas": "3836347",
-    "calldataGas": "14384",
-    "executionGas": "3821963"
+    "mean": "4007404",
+    "variance": 0.06454777207389123,
+    "totalGas": "4094012",
+    "calldataGas": "14600",
+    "executionGas": "4079412"
   },
   {
     "scheme": "mldsa",
     "status": "ok",
     "runs": [
-      "8349804",
-      "8466463",
-      "8380383"
+      "8348608",
+      "8350407",
+      "8470275"
     ],
-    "mean": "8398883",
-    "variance": 0.013889823206252545,
-    "totalGas": "8349804",
-    "calldataGas": "38420",
-    "executionGas": "8311384"
+    "mean": "8389763",
+    "variance": 0.014501839920865464,
+    "totalGas": "8348608",
+    "calldataGas": "38348",
+    "executionGas": "8310260"
   }
 ]
