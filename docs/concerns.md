@@ -154,3 +154,178 @@ the raw key itself, not a recovered-address model. Resolution belongs
 to Story 3-1's / 4-1's signer module design (how do they expose "the
 thing the account compares against"?). Flagged for story-creator-agent
 when drafting 3-1.
+
+**Resolved 2026-04-15** by amendment **A-003** — all PQC accounts store
+the 20-byte SSTORE2 pointer returned by `ISigVerifier.setKey(rawKey)`;
+the signer module's `Keypair.publicKey` continues to hold the raw
+NIST-encoded key. See `docs/amendments.md#A-003`.
+
+## C-006 — Flaky AC-1 in `ecdsa.test.ts` (intermittent ECDSAInvalidSignature revert)
+
+**Source:** `test/accounts/ecdsa.test.ts` AC-1 (`valid owner signature returns SIG_VALIDATION_SUCCESS`)
+**First observed:** Story 3-1 baseline snapshot (2026-04-15)
+**Severity:** Low (intermittent; may escalate to Medium under Story 5-1's loop pressure)
+
+Baseline run for Story 3-1 hit a single `ECDSAInvalidSignature()` revert
+inside `EcdsaAccount._validateSignature → ECDSA.recover`. Same git SHA,
+same input shape, **second run passed 9/9 cleanly**. No code changed
+between runs.
+
+Likely cause: viem's `signMessage` or hardhat-EDR's signing path
+occasionally produces a signature OZ's `ECDSA.tryRecover` rejects on the
+high-S malleability check (EIP-2 / SignatureS guard at
+`@openzeppelin/contracts/utils/cryptography/ECDSA.sol`'s
+`InvalidSignatureS` short-circuit, which `tryRecover` collapses to
+`InvalidSignature`). Probability appears low (~1 in N runs) but
+deterministic in distribution.
+
+**Why it matters for Story 5-1:** the gas benchmark loops many UserOps
+per run. If the failure rate is ~1/N, the benchmark will hit it within
+a handful of iterations. Variance numbers will be polluted unless the
+signer is hardened to enforce low-S before returning.
+
+**Fix-when-touched (Story 5-1 prep):** After `viem.signMessage`, if the
+signature's `s` byte (offset 32..63 of the 65-byte sig) is in the upper
+half of the curve order, flip `s` to `n - s` and toggle the recovery byte
+(`v` at offset 64) between 27/28. This is the canonical EIP-2 low-S
+normalization. Encapsulate inside `test/signers/ecdsa.ts` so all
+consumers (3-1's userOpHash extraction in Task 3, 5-1's benchmark loop)
+inherit it. Not blocking Story 3-1 — Story 3-1 doesn't re-sign with
+ECDSA in its happy path.
+
+## C-007 — Story 3-1 paused on Falcon JS encoding bridge
+
+**Source:** Story 3-1 / Task 4 (encoding bridge)
+**First observed:** Story 3-1 implementation (2026-04-15)
+**Severity:** Medium (blocks Stories 3-2 and 5-1 until resumed)
+
+### Context
+
+Story 3-1's Task 4 requires bridging two Falcon-512 encodings: noble's
+NIST-format outputs (897-byte public key, ~666-byte Golomb-Rice-compressed
+signature) and ZKNOX/ETHFALCON's on-chain dialect (NTT-domain compacted
+public key as `uint256[32]`, fixed-size 1064-byte signature `salt(40) ||
+s2_compact(1024)`). Tasks 1 and 3 are committed (FalconAccount.sol at
+6cdfc22; userOpHash helper extracted at 43b331b). Tasks 2, 4, 5, 6, 7
+remain.
+
+Unlike ETHDILITHIUM, the ETHFALCON repository ships **no JavaScript
+reference implementation** — only Solidity verifier + Python signer
+(`ETHFALCON/python-ref/`). Writing the bridge from scratch requires
+porting NTT (Z_q[x]/(x^512+1) with q=12289) and Golomb-Rice signature
+compression to TypeScript.
+
+### User decision (2026-04-15)
+
+Pause Story 3-1, complete Story 4-1 (ML-DSA) first, then return to 3-1.
+Rationale:
+
+- **JS-only constraint preserved.** No Python fallback, no shell-out,
+  no separate runtime. The full toolchain stays Node + viem + Hardhat.
+- **ETHDILITHIUM ships `ETHDILITHIUM/js/`** — a complete JS reference
+  for the analogous ML-DSA bridge problem (`utils_mldsa.js`,
+  `pkDeploy.js`, `execute.js`). Building Story 4-1 first establishes
+  the bridge pattern (noble → on-chain encoding → ABI-encoded SSTORE2
+  payload → account deployment) end-to-end in JS.
+- **Story 3-1 then becomes a port problem, not a discovery problem.**
+  Returning to Falcon with the ML-DSA bridge as a working template
+  reduces the open question to "translate ETHFALCON's Python signer to
+  TS" — a mechanical transcription where the surrounding scaffolding
+  is already proven.
+
+### What is committed under Story 3-1
+
+- `contracts/FalconAccount.sol` (Task 1, commit 6cdfc22) — full
+  implementation, NatSpec, two-deviation handling (selector ambiguity,
+  view-mutability warning) documented in commit message.
+- `test/signers/userOpHash.ts` (Task 3, commit 43b331b) — shared helper
+  used by ECDSA today and consumed by ML-DSA in Story 4-1.
+
+### Resume condition
+
+Story 4-1 reaches Gate 5 PASS. At that point, Story 3-1 resumes at
+Task 2 (Falcon signer JS module) with the ML-DSA implementation as the
+template — same flow: decode NIST key with noble, transform to on-chain
+encoding, ABI-encode for `setKey()`, deploy, sign, verify on-chain.
+
+### Why we do not fix now
+
+Pushing through Task 4 in Story 3-1 today would either (a) introduce a
+Python dependency the project explicitly rejects, or (b) commit days to
+porting NTT + Golomb-Rice with no reference JS for sanity-checking
+intermediate values. Doing ML-DSA first amortizes the bridge-design
+work across both schemes and yields a working JS reference before the
+Falcon port begins.
+
+### Re-evaluation triggers
+
+- Story 4-1 Gate 5 PASS → unpause 3-1; revisit Task 2/4 design with
+  ML-DSA bridge as reference.
+- If Story 4-1 itself reveals the JS bridge approach is unsuitable
+  (e.g., noble internals don't expose the right primitives for either
+  scheme), escalate to architecture amendment before resuming 3-1.
+
+## C-008 — Story 4-1 code review deferrals (LOW severity)
+
+**Source:** code-review-agent on commits `b3954e3` + `d2a093e` (Story 4-1 close)
+**First observed:** 2026-04-15
+**Severity:** Low (none block Gate 5)
+
+Four LOW-severity findings deferred for a future quality-cycle pass.
+Finding 2 (AC-4 substring matching) was fixed inline in the next commit;
+the four below remain.
+
+### C-008.1 — `deployDilithiumVerifier` return shape footgun (multi-connection)
+
+`test/fixtures/mldsa.ts:35-43` returns `{ dilithiumVerifier, publicClient,
+walletClients }`. When a caller passes its own `viem` (the documented use
+case for cross-fixture sharing), the returned `publicClient` and
+`walletClients` are still derived from the fixture's `v` reference — which
+is fine when the caller passed `v`, but a future caller mixing fixture
+clients with a different connection would re-introduce the exact
+cross-network bug the single-connection refactor exists to prevent.
+
+**Fix-when-touched:** when `viem` is provided, return only
+`{ dilithiumVerifier }`. Force the caller to re-use their own connection's
+clients.
+
+### C-008.2 — Dead `walletClients` wire + unreachable length check
+
+`test/fixtures/mldsa.ts:39, 62-66`. `walletClients` is fetched and returned
+but never read by the only caller. `hexToBytes(pointerHex).length !== 20`
+is essentially unreachable given `ZKNOX_dilithium.setKey`'s
+`abi.encodePacked(address)` (always 20 bytes). Defensive but redundant.
+
+**Fix-when-touched:** drop `walletClients`; either drop the length check or
+cache `hexToBytes(pointerHex).length` in a local.
+
+### C-008.3 — `F_INV = 8347681` magic constant lacks FIPS 204 citation
+
+`test/signers/mldsa-encoding.ts:22`. Comment says "256^-1 mod q" but every
+other constant in the file cites a FIPS 204 section. This one breaks the
+pattern and forces a reader to rederive.
+
+**Fix-when-touched:** add `// FIPS 204 §7.5 — F in Algorithm 41 (NTT⁻¹
+normalization)`. Pure documentation.
+
+### C-008.4 — Reliance on noble's `_crystals` private-ish entrypoint
+
+`test/signers/mldsa-encoding.ts:2` imports `genCrystals` from
+`@noble/post-quantum/_crystals.js`. The leading underscore is noble's
+convention for "internal — may change without semver bump." `package.json`
+exports it (so the import resolves), but a noble minor-version bump could
+silently change `genCrystals`'s signature and the t1 storage form.
+
+**Why not fix now:** lockfile-pinned noble version (`0.6.1`) is stable.
+Reimplementing `transformT1Poly` against the raw FIPS 204 zeta table
++ Cooley-Tukey butterflies (~50 LOC) eliminates the dependency but adds
+maintenance surface that has to track noble's bug fixes.
+
+**Re-evaluation triggers:** noble-post-quantum 1.0 release, OR the import
+breaks on a routine `npm update`. Until then, lockfile is the safety net.
+
+### Resolution path
+
+All four are eligible for a single follow-up commit during a future
+quality-cycle pass (e.g. between Story 4-2 and Story 5-1). None block
+Story 4-1 Gate 5 or Story 3-1 resumption.

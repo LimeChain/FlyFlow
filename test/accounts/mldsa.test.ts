@@ -166,8 +166,16 @@ describe("Story 4-1 — MlDsaAccount", () => {
       ),
       "MlDsaAccount.sol must call dilithiumVerifier.verify with the canonical 3-arg form",
     );
-    assert.ok(source.includes("try"), "must wrap verifier call in try");
-    assert.ok(source.includes("catch"), "must wrap verifier call in catch");
+    assert.match(
+      source,
+      /try\s+dilithiumVerifier\.verify\s*\(/,
+      "must wrap dilithiumVerifier.verify call in a `try` block (not just contain the word 'try')",
+    );
+    assert.match(
+      source,
+      /\}\s*catch\b/,
+      "must close the try with a `catch` block (not just contain the word 'catch')",
+    );
     assert.ok(
       source.includes("SignatureMalformed"),
       "must declare SignatureMalformed custom error",
