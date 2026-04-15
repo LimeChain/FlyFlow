@@ -160,16 +160,25 @@ the 20-byte SSTORE2 pointer returned by `ISigVerifier.setKey(rawKey)`;
 the signer module's `Keypair.publicKey` continues to hold the raw
 NIST-encoded key. See `docs/amendments.md#A-003`.
 
-## C-006 — Flaky AC-1 in `ecdsa.test.ts` (intermittent ECDSAInvalidSignature revert)
+## C-006 — Flaky AC-1/AC-3 in `ecdsa.test.ts` (intermittent ECDSAInvalidSignature revert)
 
-**Source:** `test/accounts/ecdsa.test.ts` AC-1 (`valid owner signature returns SIG_VALIDATION_SUCCESS`)
-**First observed:** Story 3-1 baseline snapshot (2026-04-15)
+**Source:** `test/accounts/ecdsa.test.ts` AC-1 (`valid owner signature returns SIG_VALIDATION_SUCCESS`) and AC-3 (`bit-flipped signature is rejected`)
+**First observed:** Story 3-1 baseline snapshot (2026-04-15, AC-1 variant). AC-3 variant observed during Story 4-2 Task 3 full-suite gate (2026-04-15) — re-run cleanly passed 28/28.
 **Severity:** Low (intermittent; may escalate to Medium under Story 5-1's loop pressure)
 
 Baseline run for Story 3-1 hit a single `ECDSAInvalidSignature()` revert
 inside `EcdsaAccount._validateSignature → ECDSA.recover`. Same git SHA,
 same input shape, **second run passed 9/9 cleanly**. No code changed
 between runs.
+
+Story 4-2 Task 3 re-hit the same family on AC-3 (the bit-flipped-signature
+test) — the bit-flip occasionally produces a high-S signature that OZ's
+`ECDSA._throwError` rejects as `ECDSAInvalidSignature()` before reaching
+the test's expected "returns 1n" assertion. Immediate re-run passed. AC-3's
+happy case is "return 1n on an unrelated signer" — the ecrecover low-S
+guard triggering a revert instead is a different failure mode but the same
+root cause (signer/EDR high-S output). The fix-when-touched plan in Story
+5-1 prep covers both variants.
 
 Likely cause: viem's `signMessage` or hardhat-EDR's signing path
 occasionally produces a signature OZ's `ECDSA.tryRecover` rejects on the

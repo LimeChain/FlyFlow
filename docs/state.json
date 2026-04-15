@@ -3,11 +3,17 @@
   "flow": "greenfield",
   "version": "next-2.0",
   "created": "2026-04-11T11:20:05.883Z",
-  "lastUpdated": "2026-04-15T01:50:00.000Z",
+  "lastUpdated": "2026-04-15T08:10:00.000Z",
   "currentPhase": "implement",
   "currentStep": null,
-  "currentCheckpoint": null,
-  "currentStory": null,
+  "currentCheckpoint": "story-creation",
+  "currentStory": {
+    "storyId": "4-2",
+    "slug": "mldsa-failure-classes",
+    "size": "S",
+    "wave": 3,
+    "startedAt": "2026-04-15T08:10:00.000Z"
+  },
   "complexityTier": "medium",
   "contextWarnings": false,
   "phases": {
@@ -95,7 +101,7 @@
       "gate5Passes": 5,
       "gate5Fails": 0,
       "gate5Overrides": 0,
-      "avgTasksPerStory": 5.0,
+      "avgTasksPerStory": 5,
       "sizeDistribution": {
         "S": 3,
         "M": 5,
@@ -160,7 +166,7 @@
       "agentTeamsUsed": false,
       "parallelWaves": 0,
       "parallelStories": 0,
-      "subagentSpawns": 9
+      "subagentSpawns": 10
     },
     "optionalSkills": {
       "designer": {
@@ -195,14 +201,15 @@
     }
   },
   "baselineTests": {
-    "total": 25,
-    "passing": 25,
+    "total": 28,
+    "passing": 28,
     "failing": 0,
     "noInfra": false,
-    "baselinedAt": "2026-04-15T01:50:00.000Z",
-    "baselinedAtStory": 5,
+    "baselinedAt": "2026-04-15T08:20:00.000Z",
+    "baselinedAtStory": 6,
     "flakyKnown": [
-      "Story 2-1 — EcdsaAccount > AC-1: valid owner signature returns SIG_VALIDATION_SUCCESS"
+      "Story 2-1 — EcdsaAccount > AC-1: valid owner signature returns SIG_VALIDATION_SUCCESS",
+      "Story 2-1 — EcdsaAccount > AC-3: bit-flipped signature is rejected"
     ]
   },
   "waveStrategy": {},
@@ -212,7 +219,7 @@
     "pass2Partial": false
   },
   "compacted": {
-    "at": "2026-04-15T00:49:26.249Z",
+    "at": "2026-04-15T07:52:02.610Z",
     "trigger": "unknown"
   }
 }
