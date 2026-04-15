@@ -198,6 +198,10 @@ ECDSA in its happy path.
 **Source:** Story 3-1 / Task 4 (encoding bridge)
 **First observed:** Story 3-1 implementation (2026-04-15)
 **Severity:** Medium (blocks Stories 3-2 and 5-1 until resumed)
+**Status:** RESOLVED 2026-04-15 — Story 4-1 reached Gate 5 PASS; Story 3-1
+unpaused per the resume condition below. Resumes at Task 2 (Falcon signer JS
+module) with `test/signers/mldsa-encoding.ts` + `test/fixtures/mldsa.ts` as
+the working JS reference for the noble → on-chain encoding bridge.
 
 ### Context
 
