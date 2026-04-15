@@ -434,3 +434,44 @@ shared with the happy-path fixture.
 
 **Re-evaluation triggers:** Story 5-1 entry, OR someone else touches the
 AC-3 block (touch-test-fix rule).
+
+---
+
+## C-011 — Story 4-2 code-review deferrals (LOW-severity editorial/pattern)
+
+**Source:** Adversarial code review of Story 4-2 (MlDsaAccount failure-class
+tests), 2026-04-15.
+**Severity:** LOW (editorial + cross-cutting pattern)
+
+Review surfaced 2 findings, both LOW. Neither blocks Gate 5. Both are deferred
+as fix-when-touched so Story 4-2 stays scope-clean against its sibling 3-2.
+
+### C-011.1 — AC-2 comment range notation inconsistent
+
+`test/accounts/mldsa-failures.test.ts:189-190`. Inline comment describes
+z-polynomial as `offset 32..2335` and h-hint as `offset 2336..2419`
+(inclusive-end form). The story file and the ZKNOX source use half-open
+ranges `[32, 2336)` and `[2336, 2420)`. Numerically equivalent; purely a
+readability mismatch with surrounding notation.
+
+**Fix-when-touched:** normalize to half-open `[start, end)` form when the
+comment block is next revised.
+
+### C-011.2 — Dual-path predicate rethrow pattern is cross-cutting
+
+`test/accounts/mldsa-failures.test.ts:244` (and its sibling at
+`test/accounts/falcon-failures.test.ts:230`). The predicate `if
+(!(err instanceof BaseError)) throw err` loses the original error shape when
+`assert.rejects` catches a re-throw from inside the predicate. In practice
+the message still surfaces via "predicate threw" but debugging under a
+future viem shape-change would lose granularity. This is inherited pattern
+from Story 3-2 — any change belongs at the cross-cutting refactor level, not
+inside Story 4-2's scope.
+
+**Fix-when-touched:** if a future refactor introduces a shared test-helpers
+module, change the predicate to return `false` on unexpected shapes and
+assert shape outside the predicate body. Applies to both Falcon and ML-DSA
+failure files symmetrically.
+
+**Re-evaluation triggers:** test-helpers refactor, OR viem version bump that
+changes the BaseError hierarchy.
