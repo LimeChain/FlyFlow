@@ -17,7 +17,7 @@
  */
 
 import hre from "hardhat";
-import { hexToBytes, type Hex } from "viem";
+import { hexToBytes, type Hex, type PublicClient } from "viem";
 
 import { encodePublicKeyForZKNOX } from "../signers/falcon-encoding.js";
 
@@ -31,6 +31,7 @@ export async function deployFalconVerifier(viem: ViemConnection) {
 export async function registerPublicKey(
   falconVerifier: Awaited<ReturnType<typeof deployFalconVerifier>>["falconVerifier"],
   rawPublicKey: Uint8Array,
+  publicClient: PublicClient,
 ): Promise<Hex> {
   const encoded = encodePublicKeyForZKNOX(rawPublicKey);
 
@@ -41,6 +42,18 @@ export async function registerPublicKey(
   if (hexToBytes(pointerHex as Hex).length !== 20) {
     throw new Error(
       `Expected 20-byte SSTORE2 pointer, got ${hexToBytes(pointerHex as Hex).length} bytes`,
+    );
+  }
+
+  // simulate.setKey predicts the SSTORE2 deploy address from the verifier's
+  // current nonce; write.setKey then performs the real deploy. On Hardhat
+  // these match because eth_call doesn't bump the nonce. Verify the predicted
+  // pointer actually has bytecode now — fail loudly rather than silently
+  // initializing an account against an empty pointer if the addresses ever drift.
+  const code = await publicClient.getBytecode({ address: pointerHex as Hex });
+  if (!code || code === "0x") {
+    throw new Error(
+      `SSTORE2 pointer ${pointerHex} has no deployed bytecode — simulate/write address drift`,
     );
   }
 

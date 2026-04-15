@@ -46,7 +46,7 @@ async function setup() {
   const { falconVerifier } = await deployFalconVerifier(viem);
 
   const alice = keygen("falcon");
-  const pointerHex = await registerPublicKey(falconVerifier, alice.publicKey);
+  const pointerHex = await registerPublicKey(falconVerifier, alice.publicKey, publicClient);
 
   const implementation = await viem.deployContract("FalconAccount", [
     entryPoint.address,
@@ -163,19 +163,15 @@ describe("Story 3-1 — FalconAccount", () => {
       ),
       "FalconAccount.sol must call falconVerifier.verify with the canonical 3-arg form",
     );
+    // Single bound check: try { falconVerifier.verify(...) ... } catch ... SignatureMalformed.
+    // Looser regex (separate try/catch/SignatureMalformed includes) allowed an unrelated
+    // try/catch elsewhere in the file to satisfy the AC while the verifier call lost its
+    // catch arm. Story 3-2's runtime assertion is the real backstop, but until then this
+    // structural check should bind the three pieces together.
     assert.match(
       source,
-      /try\s+falconVerifier\.verify\s*\(/,
-      "must wrap falconVerifier.verify call in a `try` block (not just contain the word 'try')",
-    );
-    assert.match(
-      source,
-      /\}\s*catch\b/,
-      "must close the try with a `catch` block (not just contain the word 'catch')",
-    );
-    assert.ok(
-      source.includes("SignatureMalformed"),
-      "must declare SignatureMalformed custom error",
+      /try\s+falconVerifier\.verify[\s\S]{0,400}?\}\s*catch[\s\S]{0,200}?SignatureMalformed/,
+      "must bind try/catch/SignatureMalformed to the falconVerifier.verify call",
     );
     assert.ok(
       source.includes("is SimpleAccount"),

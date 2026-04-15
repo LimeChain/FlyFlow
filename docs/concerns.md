@@ -333,3 +333,60 @@ breaks on a routine `npm update`. Until then, lockfile is the safety net.
 All four are eligible for a single follow-up commit during a future
 quality-cycle pass (e.g. between Story 4-2 and Story 5-1). None block
 Story 4-1 Gate 5 or Story 3-1 resumption.
+
+---
+
+## C-009 — Story 3-1 code review deferrals (LOW severity)
+
+**Source:** Adversarial code review of Story 3-1 (FalconAccount + noble→ZKNOX
+encoding bridge), 2026-04-15.
+**Severity:** LOW (deferred from this review)
+
+Two findings the review surfaced are accepted as known fragilities. The
+other recommended fixes (Findings 1, 2, 4, 6) were applied in commit
+`fix(signers): code review followups`.
+
+### C-009.1 — `falcon-encoding.ts` depends on noble internal subpath
+
+`test/signers/falcon-encoding.ts:1-2` imports from
+`@noble/curves/abstract/modular.js` and `@noble/post-quantum/_crystals.js`.
+The leading-underscore `_crystals.js` subpath is noble's "internal — may
+change without semver bump" convention. Same risk as C-008.4 (ML-DSA);
+both bridges share the dependency. Lockfile pin to `@noble/post-quantum
+0.6.1` is the only safety net.
+
+**Why not fix now:** removing the dependency means hand-porting noble's
+`genCrystals` NTT machinery against raw Falcon-spec zeta tables (~80 LOC,
+plus matching test vectors). Strictly speaking it would also be the right
+moment to unify the ML-DSA and Falcon NTT plumbing.
+
+**Re-evaluation triggers:** noble-post-quantum 1.0 release, OR the import
+breaks on a routine `npm update`. Co-evaluate with C-008.4.
+
+### C-009.2 — Wrapper-contract name collision `ZKNOX_falcon`
+
+`contracts/imports/FalconRef.sol:25-28` declares
+`contract ZKNOX_falcon is _ZKNOX_falcon {}`, where `_ZKNOX_falcon` is the
+aliased import of the submodule's identically-named contract. Only one
+artifact JSON is emitted (the wrapper, at the project path), so HH3 doesn't
+ambiguous-name-conflict at build time. `contracts/FalconAccount.sol` imports
+the type from the submodule path; the deployed wrapper is type-compatible
+because it inherits.
+
+Risk: if anyone uses solc-level type operations
+(`type(ZKNOX_falcon).runtimeCode`, etc.) without inspecting both import
+paths, they may pick the wrong type. Future tooling (Etherscan verification,
+typechain) may also get confused by the duplicate name. Same wrapper-naming
+risk applies to `DilithiumRef.sol` (Story 4-1) and is shared.
+
+**Why not fix now:** rename to `ZKNOX_falcon_Wrapper` requires updating the
+deploy-by-name string at `test/fixtures/falcon.ts:27` plus the equivalent
+ML-DSA wrapper for symmetry. Cosmetic; functional behavior is correct.
+
+**Re-evaluation triggers:** typechain or Etherscan-verification work, OR a
+PR introduces solc type-of operations.
+
+### Resolution path
+
+Both eligible for a single follow-up commit during a future quality-cycle
+pass. Neither blocks Story 3-1 Gate 5 or Story 3-2 entry.

@@ -12,7 +12,12 @@ const Q = 12289;
 const ROOT_OF_UNITY = 7;
 // F = n^-1 mod q, required by genCrystals for NTT-decode normalization.
 // We only use NTT.encode here (forward), but genCrystals still demands F up front.
-const F_INV = Number(invert(BigInt(N), BigInt(Q)));
+// Pinned to the literal from ETHFALCON/src/ZKNOX_falcon_utils.sol:36 (nm1modq);
+// the runtime assertion fails loudly if a future invert() drift breaks the equality.
+const F_INV = 12265;
+if (F_INV !== Number(invert(BigInt(N), BigInt(Q)))) {
+  throw new Error("Falcon-512: F_INV (nm1modq) drift — expected 12265 = invert(N, Q)");
+}
 const noblePqCrystals = genCrystals({
   N,
   Q,
@@ -97,7 +102,8 @@ function decompressSignature(body: Uint8Array): Int16Array {
     const low = readBits(7);
     let high = 0;
     while (readBits(1) === 0) {
-      if (++high > 2047) throw new Error("Falcon-512 compressed s2: runaway unary");
+      // high<<7 | low must stay ≤ ALGO17_LIMIT (2047); high≥16 already overflows.
+      if (++high >= 16) throw new Error("Falcon-512 compressed s2: runaway unary");
     }
     const v = low | (high << 7);
     if (sign && v === 0) throw new Error("Falcon-512 compressed s2: negative zero");
