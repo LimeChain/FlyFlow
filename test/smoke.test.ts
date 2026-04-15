@@ -70,14 +70,11 @@ describe("Story 1-1 smoke", () => {
     assert.match(signed.signature, /^0x[0-9a-fA-F]{130}$/);
   });
 
-  it("falcon keygen throws NotImplementedError with code NOT_IMPLEMENTED", () => {
-    assert.throws(
-      () => keygen("falcon"),
-      (err: unknown) => {
-        const e = err as Error & { code?: string };
-        return e.code === "NOT_IMPLEMENTED";
-      },
-    );
+  it("falcon keygen returns a 897-byte Falcon-512 publicKey and 1281-byte secretKey", () => {
+    const { publicKey, secretKey } = keygen("falcon");
+
+    assert.equal(publicKey.length, 897);
+    assert.equal(secretKey.length, 1281);
   });
 
   it("mldsa keygen returns a 1312-byte ML-DSA-44 publicKey and 2560-byte secretKey", () => {

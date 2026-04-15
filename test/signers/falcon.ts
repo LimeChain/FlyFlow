@@ -1,22 +1,50 @@
 /**
- * Falcon signer — STUB. Real implementation lands in Story 3-1.
+ * Falcon-512 signer — wraps `@noble/post-quantum` `falcon512`.
  *
- * Both entry points throw `NotImplementedError` with code `"NOT_IMPLEMENTED"`
- * so callers can distinguish "not yet built" from genuine runtime errors.
+ * Parameter-set choice: Falcon-512 (NIST Level 1) matches the ZKNoxHQ
+ * ETHFALCON verifier submodule, which is hard-wired to n=512, q=12289 at
+ * `ETHFALCON/src/ZKNOX_falcon_utils.sol:33-34`.
+ *
+ * Unlike ML-DSA, BOTH the public key AND the signature need an encoding
+ * bridge to the on-chain dialect:
+ *  - noble's public key is the 897-byte NIST form (header || 14-bit-packed
+ *    coefficients); the verifier stores an SSTORE2 pointer (20 bytes) to an
+ *    ABI-encoded NTT-domain compacted `uint256[32]`. See `falcon-encoding.ts`
+ *    and A-003 for the rationale (account stores pointer, raw key off-chain).
+ *  - noble emits a Falcon detached signature (header || 40-byte nonce ||
+ *    Algorithm-17 Golomb-Rice compressed s2); ZKNOX expects a flat
+ *    `salt(40) || s2_compact(1024)` = 1064 bytes. `encodeSignatureForZKNOX`
+ *    performs the reshape.
+ *
+ * Hash domain: noble's `falcon512.sign` computes HashToPoint internally over
+ * `nonce || msg` using SHAKE256; ZKNOX matches at `ZKNOX_falcon.sol:73`
+ * (`hashToPointNIST(salt, h)`), so no ctx prefix or internal-API call is
+ * required here.
  */
 
-import { NotImplementedError } from "./errors.js";
+import { falcon512 } from "@noble/post-quantum/falcon.js";
+import { hexToBytes } from "viem";
+
+import { encodeSignatureForZKNOX } from "./falcon-encoding.js";
 import type { Keypair, PackedUserOperation, UnsignedUserOp } from "./index.js";
+import { computeUserOpHash } from "./userOpHash.js";
 
 export function keygen(): Keypair {
-  throw new NotImplementedError("falcon");
+  const { publicKey, secretKey } = falcon512.keygen();
+  return { publicKey, secretKey };
 }
 
 export async function signUserOp(
-  _secretKey: Uint8Array,
-  _userOp: UnsignedUserOp,
-  _entryPointAddress: string,
-  _chainId: bigint,
+  secretKey: Uint8Array,
+  userOp: UnsignedUserOp,
+  entryPointAddress: string,
+  chainId: bigint,
 ): Promise<PackedUserOperation> {
-  throw new NotImplementedError("falcon");
+  const userOpHash = computeUserOpHash(userOp, entryPointAddress, chainId);
+  const nobleSig = falcon512.sign(hexToBytes(userOpHash), secretKey);
+
+  return {
+    ...userOp,
+    signature: encodeSignatureForZKNOX(nobleSig),
+  };
 }
