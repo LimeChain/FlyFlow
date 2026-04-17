@@ -231,7 +231,7 @@ Modified files:
     6. Embed Layer 1 (4 Zhenfei-canonical PRG vectors) from hex literals in the CLI source (verbatim from `ETHDILITHIUM/test/keccak_prng.t.sol:12-27` — see Dev Notes §"DD-11 LOCKED").
     7. Canonicalize + write both JSON files deterministically (stable key order, stable `generatedAt` source per Dev Notes, 2-space indent, `\n` line endings).
 
-- [ ] **Task 4: AC-U-2 onboarding diagnostics (4 failure modes)**
+- [x] **Task 4: AC-U-2 onboarding diagnostics (4 failure modes)**
   - AC: AC-1-4 (pin mismatch — finalize from Task 3's plumbing), AC-1-5, AC-1-6, AC-1-7
   - Files: `scripts/generate-kat-fixtures.ts` (extend Task 3's CLI with pre-flight checks)
   - Dependencies: Task 3 (CLI skeleton exists)

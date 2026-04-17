@@ -1,5 +1,5 @@
 /**
- * Fixture-gen CLI (Story 1, Task 3) — core generation path.
+ * Fixture-gen CLI (Story 1, Tasks 3 + 4) — pre-flight diagnostics + core generation path.
  *
  * Produces the two KAT fixture files consumed by the Story 2–5 test suite:
  *   - test/fixtures/kat/mldsa-eth/vectors.json (DD-7, 100 vectors)
@@ -8,10 +8,30 @@
  * Invocation: `npx tsx scripts/generate-kat-fixtures.ts` (AC-1-1).
  *
  * Flow (per architecture §UC-2 "Fixture regeneration"):
+ *   0. Pre-flight diagnostics (AC-U-2, Task 4). Four checks run in order —
+ *      each, on failure, writes a single NDJSON line to stderr shaped as
+ *      `{"code": "<CODE>", "message": "..."}` and exits 1:
+ *        (a) `SUBMODULE_UNINIT` — ETHDILITHIUM directory missing or empty,
+ *            or `git submodule status ETHDILITHIUM` output starts with `-`.
+ *            Message names `git submodule update --init --recursive`.
+ *        (b) `SUBMODULE_PIN_MISMATCH` — `git submodule status` leading char
+ *            is `+`, OR parent-tree gitlink SHA ≠ `git -C ETHDILITHIUM
+ *            rev-parse HEAD`. Message names both 40-hex SHAs + the re-pin
+ *            command `git -C ETHDILITHIUM checkout <pinned>`.
+ *        (c) `PYTHON_VERSION_MISMATCH` — `python3 --version` fails OR the
+ *            parsed version does not satisfy `>=3.9, <4`. Message names
+ *            both required-range and detected strings.
+ *        (d) `PYTHON_DEPS_MISSING` — `python3 -c "import dilithium_py.*, ..."`
+ *            raises `ImportError`. Message names the missing module(s) +
+ *            `pip install -r ETHDILITHIUM/pythonref/requirements.txt`.
+ *      Earlier checks gate later ones — no point probing Python deps if
+ *      the submodule isn't there. The structured `code` strings are the
+ *      contract surface asserted by tests; `message` contents are flexible
+ *      as long as the required next-command substrings are present.
  *   1. Read the pinned ETHDILITHIUM SHA (parent-tree gitlink via
  *      `git submodule status`) and current HEAD via `git -C ETHDILITHIUM
- *      rev-parse HEAD`. Abort with a raw diagnostic on mismatch — Task 4
- *      wraps this with the structured SUBMODULE_PIN_MISMATCH taxonomy.
+ *      rev-parse HEAD`. Mismatch is already caught in step 0(b); this step
+ *      reads the authoritative SHA + commit timestamp for fixture embed.
  *   2. Parse `ETHDILITHIUM/pythonref/assets/PQCsignKAT_Dilithium2_ETH.rsp`
  *      into 100 (count, seed, mlen, msg, pk, sk, sm) records; derive
  *      `sig = sm[:-mlen]` (strip appended message, per NIST KAT convention).
@@ -36,11 +56,23 @@
  *      --format=%ct HEAD`) — NOT `new Date()` — so reruns without submodule
  *      change produce byte-identical output (AC-1-2).
  *
- * Scope boundary: AC-1-4 pin-mismatch + AC-U-2 four-failure-mode diagnostics
- * (SUBMODULE_UNINIT, PYTHON_VERSION_MISMATCH, PYTHON_DEPS_MISSING) are
- * Task 4's scope; Task 3 only plumbs the pin-read + non-zero-exit skeleton.
- * The structured-error taxonomy strings (SUBMODULE_PIN_MISMATCH, etc.) are
- * referenced in comments below for Task 4 to grep against.
+ * Test-only env-var hooks (documented here; production CLI ignores them if
+ * not set — each is a pass-through override used ONLY by the colocated
+ * `generate-kat-fixtures.test.ts` to simulate individual failure modes):
+ *   - `KAT_SUBMODULE_PATH` — override the ETHDILITHIUM directory path used
+ *     by the submodule-uninit detection. Test points this at `/nonexistent`
+ *     to drive SUBMODULE_UNINIT deterministically.
+ *   - `KAT_SUBMODULE_PIN_OVERRIDE` — override the parent-tree gitlink SHA
+ *     used for pin comparison. Test sets this to a bogus 40-hex to drive
+ *     SUBMODULE_PIN_MISMATCH without mutating the real submodule state.
+ *   - `KAT_PYTHON_VERSION_OVERRIDE` — override the detected python version
+ *     string (bypasses `python3 --version`). Test sets this to e.g.
+ *     `"Python 3.7.5"` to drive PYTHON_VERSION_MISMATCH.
+ *   - `KAT_PYTHON_DEPS_PROBE_OVERRIDE` — comma-separated import list to
+ *     substitute into the deps-probe `python3 -c`. Test sets this to
+ *     `"nonexistent_module_xyz_abc"` to drive PYTHON_DEPS_MISSING.
+ * These overrides are test-only; production invocations never set them and
+ * receive the unconditional real-system behavior.
  *
  * NFR-3 (zero Python files shipped): the Python batch is passed as a string
  * argument to `python3 -c` — no `.py` files are added under `scripts/` or
@@ -49,7 +81,7 @@
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -67,6 +99,18 @@ import type {
 const THIS_FILE = fileURLToPath(import.meta.url);
 // scripts/generate-kat-fixtures.ts → repo root is two levels up.
 const REPO_ROOT = path.resolve(path.dirname(THIS_FILE), "..");
+
+/**
+ * Submodule directory. Test-only override: `KAT_SUBMODULE_PATH` replaces
+ * the default to drive SUBMODULE_UNINIT detection deterministically.
+ * Production invocations never set this.
+ */
+function submoduleDir(): string {
+  const override = process.env["KAT_SUBMODULE_PATH"];
+  if (override !== undefined && override !== "") return override;
+  return path.join(REPO_ROOT, "ETHDILITHIUM");
+}
+
 const RSP_PATH = path.join(
   REPO_ROOT,
   "ETHDILITHIUM",
@@ -77,6 +121,337 @@ const RSP_PATH = path.join(
 const FIXTURE_DIR = path.join(REPO_ROOT, "test", "fixtures", "kat");
 const ML_DSA_FIXTURE = path.join(FIXTURE_DIR, "mldsa-eth", "vectors.json");
 const PRG_FIXTURE = path.join(FIXTURE_DIR, "keccak-prg", "vectors.json");
+
+/**
+ * Required Python version range (AC-1-6). Chosen ≥3.9 because local dev runs
+ * Python 3.9.6 and `pycryptodome == 3.23.0` + `eth_abi` are verified against
+ * that floor in the pinned submodule's `requirements.txt`. `<4` guards against
+ * unknown future incompatibility.
+ */
+const PYTHON_MIN_MAJOR = 3;
+const PYTHON_MIN_MINOR = 9;
+const PYTHON_MAX_MAJOR = 4;
+const PYTHON_REQUIRED_RANGE = `>=${PYTHON_MIN_MAJOR}.${PYTHON_MIN_MINOR}, <${PYTHON_MAX_MAJOR}`;
+
+/**
+ * Python modules probed by the dep-probe (AC-1-7). These are the exact
+ * imports the main batch below uses; if any of them are missing, the batch
+ * will fail with a Python `ImportError`, so we probe them up-front.
+ */
+const PYTHON_DEPS_PROBE: readonly string[] = [
+  "dilithium_py.dilithium",
+  "dilithium_py.drbg.aes256_ctr_drbg",
+  "dilithium_py.keccak_prng.keccak_prng_wrapper",
+  "eth_abi",
+];
+
+// ---------------------------------------------------------------------------
+// AC-U-2 pre-flight diagnostics (Task 4) — four failure modes, emit NDJSON
+// to stderr and set exit code 1 on failure. Tests grep on the `code` field.
+// ---------------------------------------------------------------------------
+
+/**
+ * AC-U-2 diagnostic codes. The string values are the test-facing contract
+ * (asserted via `stderr.includes("\"code\":\"<CODE>\"")`) — do not rename
+ * without updating tests and the AC-U-2 table in `docs/stories/1-*.md`.
+ */
+type DiagnosticCode =
+  | "SUBMODULE_UNINIT"
+  | "SUBMODULE_PIN_MISMATCH"
+  | "PYTHON_VERSION_MISMATCH"
+  | "PYTHON_DEPS_MISSING";
+
+/**
+ * Diagnostic failure signal. `kind = "ok"` if the check passed; `kind =
+ * "fail"` with a `code` + `message` if the check failed. The failure
+ * payload is emitted as NDJSON to stderr by `runPreflightDiagnostics`.
+ */
+type DiagResult =
+  | { kind: "ok" }
+  | { kind: "fail"; code: DiagnosticCode; message: string };
+
+const OK: DiagResult = { kind: "ok" };
+
+function fail(code: DiagnosticCode, message: string): DiagResult {
+  return { kind: "fail", code, message };
+}
+
+/**
+ * Snapshot of `git submodule status ETHDILITHIUM` output. `statusChar` is
+ * the leading status character (`+` HEAD differs from pin, `-` not init'd,
+ * `U` merge conflict, ` ` clean, `""` if output was empty). `pinnedSha`
+ * is the parent-tree gitlink SHA (empty string if unparseable).
+ */
+interface SubmoduleStatus {
+  statusChar: string;
+  pinnedSha: string;
+  rawLine: string;
+  probeFailed: boolean;
+}
+
+function readSubmoduleStatus(): SubmoduleStatus {
+  const proc = spawnSync(
+    "git",
+    ["submodule", "status", "ETHDILITHIUM"],
+    { cwd: REPO_ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+  );
+  if (proc.status !== 0) {
+    return { statusChar: "", pinnedSha: "", rawLine: "", probeFailed: true };
+  }
+  const rawLine = (proc.stdout ?? "").split("\n")[0] ?? "";
+  if (rawLine === "") {
+    return { statusChar: "", pinnedSha: "", rawLine, probeFailed: false };
+  }
+  // First char is the status; strip it for the SHA field.
+  const statusChar = /^[+\-U ]/.test(rawLine) ? rawLine.charAt(0) : "";
+  const stripped = statusChar === "" ? rawLine : rawLine.slice(1);
+  const pinnedSha = stripped.trim().split(/\s+/)[0] ?? "";
+  return { statusChar, pinnedSha, rawLine, probeFailed: false };
+}
+
+/**
+ * (a) SUBMODULE_UNINIT detection. Succeeds if the ETHDILITHIUM directory
+ * exists and contains `src/`; fails otherwise. Tests drive the failure via
+ * `KAT_SUBMODULE_PATH=/nonexistent`.
+ */
+function checkSubmoduleUninit(status: SubmoduleStatus): DiagResult {
+  const dir = submoduleDir();
+
+  // Missing directory entirely.
+  if (!existsSync(dir)) {
+    return fail(
+      "SUBMODULE_UNINIT",
+      `ETHDILITHIUM submodule directory not found at ${dir}. ` +
+        `Initialize with: git submodule update --init --recursive`,
+    );
+  }
+
+  // Present but empty (no src/ subdir).
+  let hasContent = false;
+  try {
+    const entries = readdirSync(dir);
+    hasContent = entries.length > 0 && entries.some((e) => e === "src");
+  } catch {
+    hasContent = false;
+  }
+  if (!hasContent) {
+    return fail(
+      "SUBMODULE_UNINIT",
+      `ETHDILITHIUM submodule at ${dir} is empty or missing 'src/' subdir. ` +
+        `Initialize with: git submodule update --init --recursive`,
+    );
+  }
+
+  // `git submodule status` leading `-` = not initialized in parent-tree view.
+  // Only meaningful when we're looking at the real submodule path (the
+  // test-only override points elsewhere, so bypass in that case).
+  const isOverriddenPath = process.env["KAT_SUBMODULE_PATH"] !== undefined
+    && process.env["KAT_SUBMODULE_PATH"] !== "";
+  if (!isOverriddenPath) {
+    if (status.probeFailed || status.statusChar === "-") {
+      return fail(
+        "SUBMODULE_UNINIT",
+        `git submodule status ETHDILITHIUM reports uninitialized state. ` +
+          `Initialize with: git submodule update --init --recursive`,
+      );
+    }
+  }
+
+  return OK;
+}
+
+/**
+ * (b) SUBMODULE_PIN_MISMATCH detection. Compares parent-tree gitlink SHA
+ * (from `git submodule status`) to current submodule HEAD. Fails if they
+ * differ, or if `git submodule status` reported the `+` (HEAD-diverged)
+ * status char.
+ *
+ * Test-only override: `KAT_SUBMODULE_PIN_OVERRIDE` replaces the parent-tree
+ * gitlink SHA to drive this failure mode without mutating real submodule state.
+ */
+function checkSubmodulePinMismatch(status: SubmoduleStatus): DiagResult {
+  const pinOverride = process.env["KAT_SUBMODULE_PIN_OVERRIDE"];
+  const pinnedSha =
+    pinOverride !== undefined && pinOverride !== ""
+      ? pinOverride
+      : status.pinnedSha;
+
+  let currentHead: string;
+  try {
+    currentHead = execFileSync(
+      "git",
+      ["-C", submoduleDir(), "rev-parse", "HEAD"],
+      { cwd: REPO_ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    ).trim();
+  } catch {
+    // Cannot probe HEAD — report as pin mismatch with unknown SHA.
+    return fail(
+      "SUBMODULE_PIN_MISMATCH",
+      `Failed to read ETHDILITHIUM HEAD. expected=<unknown> actual=<unknown>. ` +
+        `Re-pin with: git -C ETHDILITHIUM checkout ${pinnedSha}`,
+    );
+  }
+
+  const hasMismatch =
+    status.statusChar === "+" ||
+    (pinnedSha !== "" && pinnedSha !== currentHead);
+
+  if (hasMismatch) {
+    return fail(
+      "SUBMODULE_PIN_MISMATCH",
+      `ETHDILITHIUM submodule at wrong commit: expected=${pinnedSha} actual=${currentHead}. ` +
+        `Re-pin with: git -C ETHDILITHIUM checkout ${pinnedSha}`,
+    );
+  }
+
+  return OK;
+}
+
+/**
+ * Parse a `python3 --version` output into `(major, minor, patch)`. Returns
+ * `undefined` if the string does not match `"Python <M>.<m>.<p>"` shape.
+ */
+function parsePythonVersion(
+  raw: string,
+): { major: number; minor: number; patch: number } | undefined {
+  const match = raw.trim().match(/^Python\s+(\d+)\.(\d+)(?:\.(\d+))?/);
+  if (match === null) return undefined;
+  const major = Number.parseInt(match[1] ?? "", 10);
+  const minor = Number.parseInt(match[2] ?? "", 10);
+  const patch = Number.parseInt(match[3] ?? "0", 10);
+  if (!Number.isFinite(major) || !Number.isFinite(minor)) return undefined;
+  return { major, minor, patch };
+}
+
+/**
+ * (c) PYTHON_VERSION_MISMATCH detection. Fails if `python3 --version` fails
+ * or the parsed version is not in `[3.9, 4)`. Test-only override:
+ * `KAT_PYTHON_VERSION_OVERRIDE` replaces the detected version string.
+ */
+function checkPythonVersion(): DiagResult {
+  const override = process.env["KAT_PYTHON_VERSION_OVERRIDE"];
+  let detected: string;
+  if (override !== undefined && override !== "") {
+    detected = override;
+  } else {
+    const proc = spawnSync("python3", ["--version"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    if (proc.status !== 0) {
+      return fail(
+        "PYTHON_VERSION_MISMATCH",
+        `python3 --version failed (exit ${String(proc.status)}). ` +
+          `Required: ${PYTHON_REQUIRED_RANGE}. Detected: <unavailable>. ` +
+          `Install Python 3.9+ and ensure it is on PATH.`,
+      );
+    }
+    // `python3 --version` writes to stdout in 3.4+; older versions used stderr.
+    detected = ((proc.stdout ?? "") + (proc.stderr ?? "")).trim();
+  }
+
+  const parsed = parsePythonVersion(detected);
+  if (parsed === undefined) {
+    return fail(
+      "PYTHON_VERSION_MISMATCH",
+      `Failed to parse python3 version output. ` +
+        `Required: ${PYTHON_REQUIRED_RANGE}. Detected: ${detected}.`,
+    );
+  }
+
+  const { major, minor } = parsed;
+  const satisfiesMin =
+    major > PYTHON_MIN_MAJOR ||
+    (major === PYTHON_MIN_MAJOR && minor >= PYTHON_MIN_MINOR);
+  const satisfiesMax = major < PYTHON_MAX_MAJOR;
+  if (!satisfiesMin || !satisfiesMax) {
+    return fail(
+      "PYTHON_VERSION_MISMATCH",
+      `Python version out of range. ` +
+        `Required: ${PYTHON_REQUIRED_RANGE}. Detected: ${detected}. ` +
+        `Install a compatible Python and re-run.`,
+    );
+  }
+
+  return OK;
+}
+
+/**
+ * (d) PYTHON_DEPS_MISSING detection. Spawns a lightweight `python3 -c
+ * "import <modules>"` probe. On `ImportError` (or any non-zero exit),
+ * emit the missing-module name (scraped from stderr) + the install command.
+ *
+ * Test-only override: `KAT_PYTHON_DEPS_PROBE_OVERRIDE` is a comma-separated
+ * list of module names that replaces the real probe list. Tests use a
+ * known-missing module (e.g. `nonexistent_module_xyz_abc`) to drive this.
+ */
+function checkPythonDeps(): DiagResult {
+  const override = process.env["KAT_PYTHON_DEPS_PROBE_OVERRIDE"];
+  const modules: readonly string[] =
+    override !== undefined && override !== ""
+      ? override.split(",").map((s) => s.trim()).filter((s) => s !== "")
+      : PYTHON_DEPS_PROBE;
+
+  // Build the one-liner: `import a; import b; ...` — one line for speed.
+  const pythonSnippet = modules.map((m) => `import ${m}`).join("; ");
+  const proc = spawnSync("python3", ["-c", pythonSnippet], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    // Add the submodule pythonref to PYTHONPATH so dilithium_py resolves
+    // without a prior `pip install -e .`.
+    env: {
+      ...process.env,
+      PYTHONPATH: [
+        path.join(REPO_ROOT, "ETHDILITHIUM", "pythonref"),
+        process.env["PYTHONPATH"] ?? "",
+      ]
+        .filter((p) => p !== "")
+        .join(path.delimiter),
+    },
+  });
+  if (proc.status !== 0) {
+    const stderrOut = (proc.stderr ?? "").trim();
+    // Extract the specific missing module from `ModuleNotFoundError: No
+    // module named 'foo'` or `ImportError: cannot import name ...`.
+    const moduleMatch = stderrOut.match(/No module named ['"]([^'"]+)['"]/);
+    const missing = moduleMatch?.[1] ?? modules.join(", ");
+    return fail(
+      "PYTHON_DEPS_MISSING",
+      `Python dependency probe failed — missing module: ${missing}. ` +
+        `Install with: pip install -r ETHDILITHIUM/pythonref/requirements.txt. ` +
+        `Probe stderr: ${stderrOut.slice(0, 500)}`,
+    );
+  }
+
+  return OK;
+}
+
+/**
+ * Run all four AC-U-2 pre-flight checks in order. On the first failure,
+ * emit an NDJSON diagnostic to stderr and return `false` so `main()` sets
+ * a non-zero exit code without running the generation path. Return `true`
+ * if all four checks pass.
+ */
+function runPreflightDiagnostics(): boolean {
+  const status = readSubmoduleStatus();
+  const checks: Array<() => DiagResult> = [
+    () => checkSubmoduleUninit(status),
+    () => checkSubmodulePinMismatch(status),
+    () => checkPythonVersion(),
+    () => checkPythonDeps(),
+  ];
+  for (const check of checks) {
+    const result = check();
+    if (result.kind === "fail") {
+      process.stderr.write(
+        JSON.stringify({ code: result.code, message: result.message }) + "\n",
+      );
+      return false;
+    }
+  }
+  return true;
+}
 
 // ---------------------------------------------------------------------------
 // Git helpers — pin-read plumbing (AC-1-4's Task 4 finalization hooks here)
@@ -516,16 +891,17 @@ interface PythonPrgResult {
 }
 
 function main(): number {
-  // Step 1: pin + HEAD + timestamp (AC-1-4 plumbing; Task 4 wraps as diagnostic).
-  const { pinnedSha, currentHead, commitTimestamp } = readSubmoduleShas();
-  if (pinnedSha !== currentHead) {
-    // Task 4 upgrades this to structured code "SUBMODULE_PIN_MISMATCH".
-    process.stderr.write(
-      `ETHDILITHIUM submodule HEAD (${currentHead}) differs from pinned SHA (${pinnedSha}).\n` +
-        `Reset with: git -C ETHDILITHIUM checkout ${pinnedSha}\n`,
-    );
+  // Step 0: AC-U-2 pre-flight diagnostics (Task 4). Covers SUBMODULE_UNINIT,
+  // SUBMODULE_PIN_MISMATCH, PYTHON_VERSION_MISMATCH, PYTHON_DEPS_MISSING.
+  // On any failure, the NDJSON diagnostic has already been written to stderr;
+  // we return 1 so the generation path does not run (no partial-write risk).
+  if (!runPreflightDiagnostics()) {
     return 1;
   }
+
+  // Step 1: read SHA + commit timestamp for fixture embedding. The
+  // pin-vs-HEAD check is already enforced in step 0 above.
+  const { currentHead, commitTimestamp } = readSubmoduleShas();
   const submoduleSha = currentHead;
   const generatedAt = new Date(commitTimestamp * 1000).toISOString();
 
