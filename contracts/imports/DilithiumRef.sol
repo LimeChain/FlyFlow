@@ -18,6 +18,16 @@ pragma solidity ^0.8.25;
  *         with HHE1000. The empty wrappers below inherit the submodule
  *         contracts so HH3 emits artifacts under this file's path; tests
  *         deploy the wrapper which is byte-for-byte equivalent.
+ *
+ *         Story 1 AC-1-9 note: `ZKNOX_keccak_prng.sol` is a free-functions-
+ *         only file (struct `KeccakPrng` + `initPrng` / `refill` / `nextByte`
+ *         at file scope, no contract) and is already compiled transitively
+ *         via `ZKNOX_ethdilithium` → `ZKNOX_SampleInBall` →
+ *         `ZKNOX_keccak_prng`. solc emits no standalone artifact for free-
+ *         functions files, but the compiled source IS recorded in the
+ *         build-info produced under this file's path — `check-compile-
+ *         warnings.cjs` enforces the zero-warning requirement across the
+ *         full graph (see `hardhat.config.ts` for rationale).
  */
 
 import {ZKNOX_dilithium as _ZKNOX_dilithium} from "../../ETHDILITHIUM/src/ZKNOX_dilithium.sol";
