@@ -85,6 +85,8 @@ Status: **UNVERIFIED** — Story 1 is the first in the feature. Interfaces this 
 
 ### Architecture context (inlined — correctness-critical)
 
+> **Amendment A-001 applies:** DD-7's `reshapedPublicKey` ABI tuple is `abi.encode(bytes aHatEncoded, bytes tr, bytes t1Encoded)` — `tr` is variable-length `bytes` (64 B via Keccak-PRG stream, not native 32 B `bytes32`). Original architecture text said `bytes32 tr = Keccak256(ρ ∥ t1)` — corrected in `docs/amendments.md` §A-001 after verification against Python ref (`dilithium.py:573` — `tr = self._h(pk, 64, _xof=_xof)`) and Solidity `_readPubKey` (`ZKNOX_ethdilithium.sol:183-184` — decodes as `(bytes, bytes, bytes)`). Fixture-gen CLI follows the amended contract.
+
 **DD-7 LOCKED — ML-DSA KAT fixture schema.** File at `test/fixtures/kat/mldsa-eth/vectors.json`:
 
 ```jsonc
@@ -216,7 +218,7 @@ Modified files:
   - Dependencies: Task 1 (needs the pinned-SHA read logic to factor into a shared helper)
   - Why: Downstream stories (2–5) import this loader; it must exist before their KAT tests can be written. Module-top-level `assertSubmoduleShaMatches()` call is the AC-1-8 enforcement point. Export: `KatFixtureError` (extending `Error` with `readonly code` discriminant per architecture §"JS signer taxonomy"), `KatVector` and `PrgVector` TS types matching the DD-7 / DD-11 schemas inlined above, `loadKatVectors(scheme: "mldsa-eth"): KatVector[]`, `loadPrgVectors(): PrgVector[]`. Both loaders re-invoke the SHA guard defensively (cheap) and validate schema shape on parse — on missing top-level keys throw `KatFixtureError` with `code: "KAT_SCHEMA_MISMATCH"`.
 
-- [ ] **Task 3: Fixture-gen CLI — core generation path**
+- [x] **Task 3: Fixture-gen CLI — core generation path**
   - AC: AC-1-1, AC-1-2, AC-1-3 (primary)
   - Files: `scripts/generate-kat-fixtures.ts` (new; ~120 LOC target)
   - Dependencies: Task 1 (needs pinned-SHA read), Task 2 (imports types — the CLI produces JSON matching `KatVector[]` / `PrgVector[]`)
@@ -250,7 +252,7 @@ Modified files:
 
 1. `npm run kat:regen` exits 0 and emits both JSON fixture files with correct schema (DD-7 eight-field per-vector + DD-11 two-layer) and the expected vector counts (exactly 100 ML-DSA, exactly 4 Layer-1 PRG, ≥3 Layer-2 PRG). [AC-1-1]
 2. Second immediate run of `npm run kat:regen` produces zero `git diff` under `test/fixtures/kat/`. [AC-1-2]
-3. For ≥3 sampled `.rsp` vectors, manual spot-check: `reshapedPublicKey` is a well-formed ABI-encoded `(bytes, bytes32, bytes)` triple (first 32 B = offset of `aHatEncoded`, byte 33–64 = `tr`, third dynamic chunk = `t1Encoded`). Full byte-identity vs the `.rsp` is downstream (Story 5 G3) — at this gate, confirm encoding shape. [AC-1-3]
+3. For ≥3 sampled `.rsp` vectors, manual spot-check: `reshapedPublicKey` is a well-formed ABI-encoded `(bytes, bytes, bytes)` triple (per **A-001** amendment: `tr` is variable-length 64 B via Keccak-PRG stream, not `bytes32`; matches Solidity `_readPubKey` at `ZKNOX_ethdilithium.sol:183`). Expected lengths: `aHatEncoded` = 16384 B (4×4×256 coefficients × 4 B BE-packed), `tr` = 64 B, `t1Encoded` = 4096 B (4×256 × 4 B). Full byte-identity vs the `.rsp` is downstream (Story 5 G3) — at this gate, confirm encoding shape. [AC-1-3]
 4. Simulated pin drift (e.g., `git -C ETHDILITHIUM checkout HEAD~1` temporarily) causes the CLI to exit non-zero with `code "SUBMODULE_PIN_MISMATCH"` and both SHAs named in stderr; restored after verification. [AC-1-4]
 5. Simulated submodule-uninit (`mv ETHDILITHIUM /tmp/x`) causes exit with `code "SUBMODULE_UNINIT"` and the `git submodule update --init --recursive` substring in stderr; restored. [AC-1-5]
 6. Simulated Python version mismatch (e.g., spoof via `PATH` or equivalent) exits with `code "PYTHON_VERSION_MISMATCH"` naming required + detected. [AC-1-6]
