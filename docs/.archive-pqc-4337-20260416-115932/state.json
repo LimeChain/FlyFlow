@@ -1,44 +1,44 @@
 {
-  "feature": "mldsa-eth",
+  "feature": "pqc-4337",
   "flow": "greenfield",
   "version": "next-2.0",
-  "created": "2026-04-16T09:00:07.736Z",
-  "lastUpdated": "2026-04-17T19:45:00.000Z",
-  "currentPhase": "plan",
+  "created": "2026-04-11T11:20:05.883Z",
+  "lastUpdated": "2026-04-16T08:58:48.395Z",
+  "currentPhase": "implement",
   "currentStep": null,
   "currentCheckpoint": null,
-  "contextWarnings": false,
+  "currentStory": null,
   "complexityTier": "medium",
+  "contextWarnings": false,
   "phases": {
     "research": {
       "status": "complete",
-      "startedAt": "2026-04-16T09:02:00.000Z",
-      "completedAt": "2026-04-16T09:18:00.000Z",
+      "startedAt": "2026-04-11T11:26:18.000Z",
+      "completedAt": "2026-04-11T13:46:34.000Z",
       "gateResult": "pass"
     },
     "specify": {
       "status": "complete",
-      "startedAt": "2026-04-16T09:18:00.000Z",
-      "completedAt": "2026-04-17T19:15:00.000Z",
+      "startedAt": "2026-04-11T13:46:34.000Z",
+      "completedAt": "2026-04-11T16:49:23.000Z",
       "gateResult": "pass"
     },
     "architecture": {
       "status": "complete",
-      "startedAt": "2026-04-16T10:08:00.000Z",
-      "completedAt": "2026-04-17T19:45:00.000Z",
+      "startedAt": "2026-04-12T14:21:38.000Z",
+      "completedAt": "2026-04-12T18:52:00.000Z",
       "gateResult": "pass"
     },
     "plan": {
-      "status": "pending",
-      "startedAt": null,
-      "completedAt": null,
-      "gateResult": null
+      "status": "complete",
+      "startedAt": "2026-04-13T12:49:08.000Z",
+      "completedAt": "2026-04-13T14:02:53.000Z",
+      "gateResult": "pass"
     }
   },
-  "storiesDone": 0,
-  "storiesTotal": 0,
+  "storiesDone": 8,
+  "storiesTotal": 8,
   "changeStories": [],
-  "currentStory": null,
   "tooling": {
     "format": null,
     "lint": null,
@@ -51,89 +51,91 @@
   },
   "metrics": {
     "gates": {
-      "passes": 5,
+      "passes": 10,
       "fails": 0,
       "overrides": 0,
-      "backNavigations": 2,
+      "backNavigations": 0,
       "blockingFails": 0
     },
     "phases": {
       "research": {
-        "durationMinutes": 16,
-        "revisions": 1,
+        "durationMinutes": 140,
+        "revisions": 0,
         "gateAttempts": 1
       },
       "specify": {
-        "durationMinutes": 47,
-        "revisions": 0,
+        "durationMinutes": 183,
+        "revisions": 1,
         "gateAttempts": 1,
         "personaCount": 3,
-        "personaConcerns": 9
+        "personaConcerns": 6
       },
       "architecture": {
-        "durationMinutes": 1957,
-        "revisions": 0,
+        "durationMinutes": 270,
+        "revisions": 3,
         "gateAttempts": 1,
-        "deferredDecisions": 0,
-        "resolvedDecisions": 10,
-        "personaCount": 2,
-        "personaConcerns": 4
+        "deferredDecisions": 1,
+        "resolvedDecisions": 1
       },
       "plan": {
-        "durationMinutes": null,
-        "revisions": 0,
-        "gateAttempts": 0,
-        "wavesPlanned": 0
+        "durationMinutes": 74,
+        "revisions": 2,
+        "gateAttempts": 1,
+        "wavesPlanned": 4
       }
     },
     "stories": {
-      "completed": 0,
+      "completed": 8,
       "skipped": 0,
+      "preTagSkipped": [
+        "1-1",
+        "2-1"
+      ],
       "changeStoriesCreated": 0,
-      "gate5Passes": 0,
+      "gate5Passes": 8,
       "gate5Fails": 0,
       "gate5Overrides": 0,
-      "avgTasksPerStory": 0,
+      "avgTasksPerStory": 4.25,
       "sizeDistribution": {
-        "S": 0,
-        "M": 0,
+        "S": 4,
+        "M": 6,
         "L": 0
       }
     },
     "tasks": {
-      "totalCompleted": 0,
-      "totalCompletedNoCommit": 0,
+      "totalCompleted": 34,
+      "totalCompletedNoCommit": 5,
       "totalSkipped": 0,
       "totalRevisions": 0,
       "totalVerificationCycles": 0,
-      "firstPassSuccess": 0,
+      "firstPassSuccess": 1,
       "tddCount": 0,
       "tddTotal": 0,
       "avgVerificationCycles": 0
     },
     "codeReview": {
-      "reviewsRun": 0,
-      "totalFindings": 0,
+      "reviewsRun": 6,
+      "totalFindings": 22,
       "criticalFindings": 0,
       "highFindings": 0,
-      "mediumFindings": 0,
-      "lowFindings": 0,
-      "findingsDeferred": 0
+      "mediumFindings": 4,
+      "lowFindings": 18,
+      "findingsDeferred": 9
     },
     "quality": {
-      "interfaceAudits": 0,
+      "interfaceAudits": 8,
       "interfaceMismatches": 0,
-      "amendments": 0,
-      "concerns": 0,
+      "amendments": 4,
+      "concerns": 9,
       "concernsBySeverity": {
         "critical": 0,
         "high": 0,
-        "medium": 0,
-        "low": 0
+        "medium": 2,
+        "low": 7
       }
     },
     "drift": {
-      "taskDeviations": 0,
+      "taskDeviations": 2,
       "storiesResizedDuringImpl": 0
     },
     "estimation": {
@@ -153,12 +155,12 @@
       }
     },
     "execution": {
-      "totalSessions": 2,
-      "pauseResumeCount": 2,
+      "totalSessions": 8,
+      "pauseResumeCount": 7,
       "agentTeamsUsed": false,
       "parallelWaves": 0,
       "parallelStories": 0,
-      "subagentSpawns": 6
+      "subagentSpawns": 13
     },
     "optionalSkills": {
       "designer": {
@@ -185,14 +187,22 @@
       }
     },
     "git": {
-      "totalCommits": 0,
-      "totalFilesChanged": 0,
-      "totalInsertions": 0,
-      "totalDeletions": 0,
-      "testsAdded": 0
+      "totalCommits": 20,
+      "totalFilesChanged": 49,
+      "totalInsertions": 11091,
+      "totalDeletions": 134,
+      "testsAdded": 30
     }
   },
-  "baselineTests": null,
+  "baselineTests": {
+    "total": 42,
+    "passing": 42,
+    "failing": 0,
+    "noInfra": false,
+    "baselinedAt": "2026-04-15T10:42:00.000Z",
+    "baselinedAtStory": 8,
+    "flakyKnown": []
+  },
   "waveStrategy": {},
   "devops": {
     "pass1": "pending",
@@ -200,7 +210,7 @@
     "pass2Partial": false
   },
   "compacted": {
-    "at": "2026-04-17T18:28:39.054Z",
+    "at": "2026-04-16T08:58:48.394Z",
     "trigger": "unknown"
   }
 }
