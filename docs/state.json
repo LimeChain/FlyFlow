@@ -3,7 +3,7 @@
   "flow": "greenfield",
   "version": "next-2.0",
   "created": "2026-04-16T09:00:07.736Z",
-  "lastUpdated": "2026-04-17T20:00:00.000Z",
+  "lastUpdated": "2026-04-18T09:00:00.000Z",
   "currentPhase": "implement",
   "currentStep": null,
   "currentCheckpoint": null,
@@ -38,7 +38,15 @@
   "storiesDone": 0,
   "storiesTotal": 5,
   "changeStories": [],
-  "currentStory": null,
+  "currentStory": {
+    "storyId": "1",
+    "slug": "fixture-gen-cli",
+    "title": "Fixture-gen CLI + submodule compile path + KAT loader",
+    "size": "M",
+    "wave": 1,
+    "status": "in-progress",
+    "startedAt": "2026-04-18T09:00:00.000Z"
+  },
   "tooling": {
     "format": null,
     "lint": null,
@@ -96,7 +104,7 @@
       "avgTasksPerStory": 0,
       "sizeDistribution": {
         "S": 0,
-        "M": 0,
+        "M": 1,
         "L": 0
       }
     },
@@ -192,7 +200,16 @@
       "testsAdded": 0
     }
   },
-  "baselineTests": null,
+  "baselineTests": {
+    "total": 42,
+    "passing": 42,
+    "failing": 0,
+    "preExisting": false,
+    "baselinedAt": "2026-04-18T09:05:00.000Z",
+    "baselinedAtStory": 0,
+    "failingTests": [],
+    "securitySensitive": []
+  },
   "waveStrategy": {},
   "devops": {
     "pass1": "pending",
