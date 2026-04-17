@@ -204,13 +204,13 @@ Modified files:
 
 ## Tasks
 
-- [ ] **Task 1: Submodule pin wiring + Hardhat compile path + compile verification**
+- [x] **Task 1: Submodule pin wiring + Hardhat compile path + compile verification**
   - AC: AC-1-4 (partial — pin-read plumbing), AC-1-9, AC-1-10
   - Files: `hardhat.config.ts`, `.gitmodules` (if pin-SHA recording changes), `remappings.txt` (only if ETHDILITHIUM imports require additional remapping — current `remappings.txt` already covers `sstore2/` and `InterfaceVerifier/`)
   - Dependencies: none (first task)
   - Why: Every subsequent task needs a deterministic read of the pinned SHA and a working Solidity compile path. Implement the minimal Hardhat 3 change (see Dev Notes §"Library versions" — implementer discretion on mechanism) such that `npx hardhat compile` succeeds zero-warning and all `ETHDILITHIUM/src/ZKNOX_*.sol` artifacts are generated. Verify by running `npm run compile` (which already pipes into `check-compile-warnings.cjs`) and visually confirming `artifacts/` contains `ETHDILITHIUM/src/ZKNOX_keccak_prng.sol/...` + `ZKNOX_ethdilithium.sol/...`.
 
-- [ ] **Task 2: KAT loader module + error class + SHA guard + types**
+- [x] **Task 2: KAT loader module + error class + SHA guard + types**
   - AC: AC-1-8 (primary); supports AC-1-1 (schema type definitions)
   - Files: `test/fixtures/kat/index.ts` (new; ~80 LOC target)
   - Dependencies: Task 1 (needs the pinned-SHA read logic to factor into a shared helper)
