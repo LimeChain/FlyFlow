@@ -6,6 +6,7 @@
     "compile": "hardhat compile 2>&1 | tee compile.log && node scripts/check-compile-warnings.cjs compile.log",
     "test": "hardhat test",
     "report": "node scripts/generate-report.ts",
+    "kat:regen": "tsx scripts/generate-kat-fixtures.ts",
     "clean": "hardhat clean && rm -rf artifacts cache compile.log"
   },
   "devDependencies": {

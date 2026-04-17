@@ -237,7 +237,7 @@ Modified files:
   - Dependencies: Task 3 (CLI skeleton exists)
   - Why: Each of the four failure modes must run as a pre-flight check BEFORE any work is done (empty submodule → emit SUBMODULE_UNINIT and exit; pin mismatch → SUBMODULE_PIN_MISMATCH; python check → PYTHON_VERSION_MISMATCH; dep probe → PYTHON_DEPS_MISSING). Table in Dev Notes §"AC-U-2 diagnostic taxonomy" enumerates exact `code` values and required-substring message content. Each exits non-zero with a stderr diagnostic; pass through the error `code` in a structured way (e.g., log `{"code":"SUBMODULE_UNINIT","message":"..."}` as a single JSON line to stderr) so tests can grep deterministically.
 
-- [ ] **Task 5: Wire `npm run` script + end-to-end Gate 5 verification**
+- [x] **Task 5: Wire `npm run` script + end-to-end Gate 5 verification**
   - AC: AC-1-1 (end-to-end), AC-1-2 (determinism), AC-1-10 (no new runtime deps)
   - Files: `package.json` (add script; optional `devDependencies.tsx` entry), `README.md` (optional one-liner under a "Fixtures" heading pointing at the regen command)
   - Dependencies: Tasks 1–4 complete

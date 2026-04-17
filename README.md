@@ -76,3 +76,18 @@ Submodule source is never modified in-tree (NFR-5). Any necessary adapter logic 
    - **What you'll see:** a single table with one row per scheme (ecdsa, falcon, mldsa) showing absolute gas, calldata vs execution split, overhead vs the ECDSA baseline as a percentage, and per-scheme variance.
 
 The committed `docs/gas-report.md` reflects the most recent benchmark run that landed on `main` — re-run steps 5–6 locally to refresh against your machine's gas numbers.
+
+## Fixtures
+
+KAT (known-answer-test) fixtures under `test/fixtures/kat/` are regenerated
+from the pinned `ETHDILITHIUM/` submodule via:
+
+```bash
+npm run kat:regen
+```
+
+Regeneration requires Python 3.9+ with the submodule's `dilithium_py`
+dependencies installed (`pip install -r ETHDILITHIUM/pythonref/requirements.txt`).
+The CLI verifies submodule pin, Python version, and dependencies before
+writing fixtures — see `scripts/generate-kat-fixtures.ts` for diagnostic
+codes.
