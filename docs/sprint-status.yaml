@@ -1,0 +1,43 @@
+feature: mldsa-eth
+epics:
+  - id: 1
+    name: Foundation
+    stories:
+      - id: "1"
+        slug: fixture-gen-cli
+        title: Fixture-gen CLI + submodule compile path + KAT loader
+        size: M
+        status: backlog
+        wave: 1
+        dependencies: []
+      - id: "2"
+        slug: keccak-prg-port
+        title: Keccak-PRG port + G0 KAT + G0-prime
+        size: M
+        status: backlog
+        wave: 2
+        dependencies: ["1"]
+  - id: 2
+    name: Crypto & Integration
+    stories:
+      - id: "3"
+        slug: xof-refactor-keygen
+        title: XOF refactor + keygen port + G1 KAT + NIST regression
+        size: M
+        status: backlog
+        wave: 3
+        dependencies: ["1", "2"]
+      - id: "4"
+        slug: signer-port
+        title: Signer port + G2 KAT
+        size: L
+        status: backlog
+        wave: 4
+        dependencies: ["1", "2", "3"]
+      - id: "5"
+        slug: integration-benchmark
+        title: pk-transform + MlDsaEthAccount + G3 + G4 + benchmark + rename
+        size: L
+        status: backlog
+        wave: 5
+        dependencies: ["1", "2", "3", "4"]
