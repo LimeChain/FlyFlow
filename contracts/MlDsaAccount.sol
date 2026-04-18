@@ -42,8 +42,9 @@ contract MlDsaAccount is SimpleAccount {
     ///         `abi.encodePacked(pointer)`. The verifier interprets the first
     ///         20 bytes of this field as the SSTORE2 contract address holding
     ///         the ABI-encoded `(aHatEncoded, tr, t1Encoded)` tuple. NOT the
-    ///         raw 1,312-byte ML-DSA-44 NIST-encoded key.
-    bytes public publicKey;
+    ///         raw 1,312-byte ML-DSA-44 NIST-encoded key — hence the
+    ///         `Pointer` suffix (amendment A-006).
+    bytes public publicKeyPointer;
 
     /// @notice Construct the account implementation against a fixed
     ///         EntryPoint and ML-DSA verifier. Both are immutable; per-account
@@ -59,17 +60,17 @@ contract MlDsaAccount is SimpleAccount {
     /// @notice Initialize the proxy with Alice's SSTORE2-pointer public key.
     /// @dev    The first parameter intentionally shadows
     ///         `SimpleAccount.initialize(address)` by selector — the ML-DSA
-    ///         path identifies the signer via `publicKey`, not via the
+    ///         path identifies the signer via `publicKeyPointer`, not via the
     ///         SimpleAccount `owner` field, so it is unused here. Do NOT
     ///         forward to `super.initialize(...)`; that would create a
     ///         misleading dual-identity model.
-    /// @param  _publicKey 20-byte SSTORE2 pointer bytes from
+    /// @param  _publicKeyPointer 20-byte SSTORE2 pointer bytes from
     ///                    `dilithiumVerifier.setKey(encodedPayload)`.
-    function initialize(address, bytes calldata _publicKey)
+    function initialize(address, bytes calldata _publicKeyPointer)
         public
         initializer
     {
-        publicKey = _publicKey;
+        publicKeyPointer = _publicKeyPointer;
     }
 
     /// @inheritdoc SimpleAccount
@@ -77,7 +78,7 @@ contract MlDsaAccount is SimpleAccount {
         PackedUserOperation calldata userOp,
         bytes32 userOpHash
     ) internal view override returns (uint256 validationData) {
-        try dilithiumVerifier.verify(publicKey, userOpHash, userOp.signature) returns (bytes4 result) {
+        try dilithiumVerifier.verify(publicKeyPointer, userOpHash, userOp.signature) returns (bytes4 result) {
             return result == _VERIFY_SELECTOR
                 ? SIG_VALIDATION_SUCCESS
                 : SIG_VALIDATION_FAILED;

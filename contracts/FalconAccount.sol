@@ -39,8 +39,9 @@ contract FalconAccount is SimpleAccount {
     ///         packed via `abi.encodePacked(pointer)`. The verifier interprets
     ///         the first 20 bytes of this field as the SSTORE2 contract
     ///         address holding the ABI-encoded compacted NTT-domain key.
-    ///         NOT the raw 897-byte Falcon-512 NIST-encoded key.
-    bytes public publicKey;
+    ///         NOT the raw 897-byte Falcon-512 NIST-encoded key — hence the
+    ///         `Pointer` suffix (amendment A-006).
+    bytes public publicKeyPointer;
 
     /// @notice Construct the account implementation against a fixed
     ///         EntryPoint and Falcon verifier. Both are immutable; per-account
@@ -56,17 +57,17 @@ contract FalconAccount is SimpleAccount {
     /// @notice Initialize the proxy with Alice's SSTORE2-pointer public key.
     /// @dev    The first parameter intentionally shadows
     ///         `SimpleAccount.initialize(address)` by selector — the Falcon
-    ///         path identifies the signer via `publicKey`, not via the
+    ///         path identifies the signer via `publicKeyPointer`, not via the
     ///         SimpleAccount `owner` field, so it is unused here. Do NOT
     ///         forward to `super.initialize(...)`; that would create a
     ///         misleading dual-identity model.
-    /// @param  _publicKey 20-byte SSTORE2 pointer bytes from
+    /// @param  _publicKeyPointer 20-byte SSTORE2 pointer bytes from
     ///                    `falconVerifier.setKey(rawPublicKey)`.
-    function initialize(address, bytes calldata _publicKey)
+    function initialize(address, bytes calldata _publicKeyPointer)
         public
         initializer
     {
-        publicKey = _publicKey;
+        publicKeyPointer = _publicKeyPointer;
     }
 
     /// @inheritdoc SimpleAccount
@@ -74,7 +75,7 @@ contract FalconAccount is SimpleAccount {
         PackedUserOperation calldata userOp,
         bytes32 userOpHash
     ) internal view override returns (uint256 validationData) {
-        try falconVerifier.verify(publicKey, userOpHash, userOp.signature) returns (bytes4 result) {
+        try falconVerifier.verify(publicKeyPointer, userOpHash, userOp.signature) returns (bytes4 result) {
             return result == _VERIFY_SELECTOR
                 ? SIG_VALIDATION_SUCCESS
                 : SIG_VALIDATION_FAILED;

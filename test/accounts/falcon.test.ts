@@ -159,9 +159,9 @@ describe("Story 3-1 — FalconAccount", () => {
 
     assert.ok(
       source.includes(
-        "falconVerifier.verify(publicKey, userOpHash, userOp.signature)",
+        "falconVerifier.verify(publicKeyPointer, userOpHash, userOp.signature)",
       ),
-      "FalconAccount.sol must call falconVerifier.verify with the canonical 3-arg form",
+      "FalconAccount.sol must call falconVerifier.verify with the canonical 3-arg form (A-006: publicKey → publicKeyPointer)",
     );
     // Single bound check: try { falconVerifier.verify(...) ... } catch ... SignatureMalformed.
     // Looser regex (separate try/catch/SignatureMalformed includes) allowed an unrelated

@@ -162,9 +162,9 @@ describe("Story 4-1 — MlDsaAccount", () => {
 
     assert.ok(
       source.includes(
-        "dilithiumVerifier.verify(publicKey, userOpHash, userOp.signature)",
+        "dilithiumVerifier.verify(publicKeyPointer, userOpHash, userOp.signature)",
       ),
-      "MlDsaAccount.sol must call dilithiumVerifier.verify with the canonical 3-arg form",
+      "MlDsaAccount.sol must call dilithiumVerifier.verify with the canonical 3-arg form (A-006: publicKey → publicKeyPointer)",
     );
     assert.match(
       source,

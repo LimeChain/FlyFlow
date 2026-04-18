@@ -357,3 +357,56 @@ Caught, verified, and corrected before any downstream consumer was wired to the 
 - Story 4 Task 1 smoke-test confirms G2 byte-identity on vectors 0-2 with the corrected rnd (iterations 1, 9, 4).
 - Story 4 Task 4 (G2 KAT) will formalize 100-vector byte-identity using `v.rnd` directly.
 - `docs/stories/1-fixture-gen-cli.md` §"Verified Interfaces" line 70 is now documentary-only (the authoritative shape lives in A-005); no retroactive story-file edit required.
+
+---
+
+## A-006: `publicKey` → `publicKeyPointer` rename in `MlDsaAccount` + `FalconAccount`
+
+- **Story:** 5 (Integration + benchmark + rename)
+- **Task:** 1 (pre-task rename — AC-5-1)
+- **Date:** 2026-04-18
+- **Classification:** Rule 3 (Significant — contract state-variable + function-parameter rename on two ERC-4337 account contracts)
+- **Affects:** `contracts/MlDsaAccount.sol` + `contracts/FalconAccount.sol` (both); architecture §"Smart Contract Interfaces" §"Naming normalization" (calls for this rename — this amendment closes it). `MlDsaEthAccount.sol` (Story 5 Task 3 — new) adopts `publicKeyPointer` natively, never `publicKey`.
+
+### Original (MlDsaAccount.sol + FalconAccount.sol before this amendment)
+
+```solidity
+bytes public publicKey;
+function initialize(address, bytes calldata _publicKey) public initializer {
+    publicKey = _publicKey;
+}
+try verifier.verify(publicKey, userOpHash, userOp.signature) returns (bytes4 result) { ... }
+```
+
+### Actual (both contracts post-rename)
+
+```solidity
+bytes public publicKeyPointer;
+function initialize(address, bytes calldata _publicKeyPointer) public initializer {
+    publicKeyPointer = _publicKeyPointer;
+}
+try verifier.verify(publicKeyPointer, userOpHash, userOp.signature) returns (bytes4 result) { ... }
+```
+
+NatSpec `@param` lines, `@notice` body references to the variable, and `@dev` shadowing-rationale comment updated in lockstep. Both contracts now carry a closing sentence in the state-variable `@notice` block: "NOT the raw N-byte X-NIST-encoded key — hence the `Pointer` suffix (amendment A-006)."
+
+### Rationale
+
+Architecture §"Smart Contract Interfaces" §"Naming normalization" flagged the member name `publicKey` as semantically misleading — the stored bytes are NOT the raw public key, but the SSTORE2-pointer returned by `verifier.setKey(encodedPayload)`. The raw key lives inside the SSTORE2-emitted contract the pointer addresses; the account holds only the 20-byte lookup handle. The original name invited the misreading "this is 1,312 bytes of raw key material" — the `Pointer` suffix makes the indirection visible at every call site.
+
+The architecture described this rename as a Rule 3 amendment attached to Story 4; Story 4 landed without picking it up (the signer work dominated scope). Story 5 absorbs it as its AC-5-1 pre-task so the new `MlDsaEthAccount.sol` (Task 3) is authored against the renamed convention from its first commit forward, keeping the three PQC account contracts naming-consistent.
+
+### Pre-rename audit (evidence rename is structurally safe)
+
+- `grep -rn '\.read\.publicKey' test/` returns zero hits — no test exercises the public getter accessor.
+- `grep -rn 'publicKey' test/accounts/ test/fixtures/mldsa.ts test/fixtures/falcon.ts` returns hits only in the registry helpers (`registerPublicKey` function names, the `rawPublicKey` argument to `setKey` calls, and documentation strings) — none of these depend on the member name.
+- Both accounts' `initialize(address, bytes calldata _publicKeyPointer)` are called positionally via `encodeFunctionData({abi, functionName: "initialize", args: [ZERO_ADDRESS, pointerHex]})` — parameter-name-independent.
+
+### Resolution
+
+- `contracts/MlDsaAccount.sol` — state variable, initialize parameter, assignment, verify call, and NatSpec all renamed; closing-sentence A-006 cite added to the state-variable `@notice`.
+- `contracts/FalconAccount.sol` — identical renames; same A-006 closing sentence.
+- `grep -nE '\bpublicKey\b' contracts/` returns zero matches post-rename (verified).
+- `npm run compile` succeeds with zero warnings post-rename.
+- `npx hardhat test` — full suite (91/91 pre-Story-5 baseline) passes byte-for-byte post-rename; the renamed contracts produce identical ABIs from the tests' positional-call perspective, so no test file required changes.
+- `docs/stories/5-integration-benchmark.md` Task 1 "Why" block already cross-references A-006; no retroactive story-file edit required.
