@@ -38,7 +38,15 @@
   "storiesDone": 1,
   "storiesTotal": 5,
   "changeStories": [],
-  "currentStory": null,
+  "currentStory": {
+    "storyId": "2",
+    "slug": "keccak-prg-port",
+    "title": "Keccak-PRG port + G0 KAT + G0-prime",
+    "size": "M",
+    "wave": 2,
+    "status": "in-progress",
+    "startedAt": "2026-04-18T10:55:00.000Z"
+  },
   "tooling": {
     "format": null,
     "lint": null,
@@ -96,7 +104,7 @@
       "avgTasksPerStory": 0,
       "sizeDistribution": {
         "S": 0,
-        "M": 1,
+        "M": 2,
         "L": 0
       }
     },
@@ -121,7 +129,7 @@
       "findingsDeferred": 3
     },
     "quality": {
-      "interfaceAudits": 1,
+      "interfaceAudits": 2,
       "interfaceMismatches": 0,
       "amendments": 1,
       "concerns": 3,
