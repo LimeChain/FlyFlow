@@ -3,7 +3,7 @@
   "flow": "greenfield",
   "version": "next-2.0",
   "created": "2026-04-16T09:00:07.736Z",
-  "lastUpdated": "2026-04-18T11:35:00.000Z",
+  "lastUpdated": "2026-04-18T11:50:00.000Z",
   "currentPhase": "implement",
   "currentStep": null,
   "currentCheckpoint": null,
@@ -35,18 +35,10 @@
       "gateResult": "pass"
     }
   },
-  "storiesDone": 1,
+  "storiesDone": 2,
   "storiesTotal": 5,
   "changeStories": [],
-  "currentStory": {
-    "storyId": "2",
-    "slug": "keccak-prg-port",
-    "title": "Keccak-PRG port + G0 KAT + G0-prime",
-    "size": "M",
-    "wave": 2,
-    "status": "in-progress",
-    "startedAt": "2026-04-18T10:55:00.000Z"
-  },
+  "currentStory": null,
   "tooling": {
     "format": null,
     "lint": null,
@@ -59,7 +51,7 @@
   },
   "metrics": {
     "gates": {
-      "passes": 7,
+      "passes": 8,
       "fails": 0,
       "overrides": 0,
       "backNavigations": 2,
@@ -95,10 +87,10 @@
       }
     },
     "stories": {
-      "completed": 1,
+      "completed": 2,
       "skipped": 0,
       "changeStoriesCreated": 0,
-      "gate5Passes": 1,
+      "gate5Passes": 2,
       "gate5Fails": 0,
       "gate5Overrides": 0,
       "avgTasksPerStory": 0,
@@ -201,14 +193,14 @@
     }
   },
   "baselineTests": {
-    "total": 50,
-    "passing": 50,
+    "total": 66,
+    "passing": 66,
     "failing": 0,
     "preExisting": false,
     "baselinedAt": "2026-04-18T09:05:00.000Z",
     "baselinedAtStory": 0,
-    "lastRefreshedAt": "2026-04-18T10:50:00.000Z",
-    "lastRefreshedAtStory": 1,
+    "lastRefreshedAt": "2026-04-18T11:50:00.000Z",
+    "lastRefreshedAtStory": 2,
     "failingTests": [],
     "securitySensitive": []
   },

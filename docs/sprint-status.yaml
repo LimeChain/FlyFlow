@@ -14,7 +14,7 @@ epics:
         slug: keccak-prg-port
         title: Keccak-PRG port + G0 KAT + G0-prime
         size: M
-        status: in-progress
+        status: done
         wave: 2
         dependencies: ["1"]
   - id: 2
