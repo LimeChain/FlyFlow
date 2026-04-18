@@ -331,7 +331,7 @@ Package files: no additions to `dependencies`; `devDependencies` unchanged.
   - Dependencies: Story 3 complete (`keygenWithXof`, parameter constants, coders, `makeXofGet`, `rejNTTPoly`, `rejBoundedPoly` all at current hash `3df1999...`). No intra-Story-4 dependencies — this is the foundation for Tasks 2 + 3 + 4.
   - Why: The sign body is the G2 byte-identity deliverable. Port Python `_sign_internal` at `dilithium.py:267-347` line-for-line, replacing every `_xof(seed, outLen)` call with `xofFactory(seed).xof(outLen)` and every `_xof2(seed, outLen)` with the same (single-factory on the ETH path). Preserve the rejection-loop state machine exactly — `kappa` starts at 0 and increments by `L` per iteration; norm checks abort early on bound violations; `make_hint` is computed after all three norm checks pass. Emit `cTilde ‖ bit_pack_z(z) ‖ pack_h(h)` as a single 2420 B `Uint8Array`. Instrument rejection count via `signWithXofInstrumented` per Dev Notes §"Rejection-counter instrumentation". Verify AC-A-1 grep after landing.
 
-- [ ] **Task 2: Add `signWithRnd` to `ml-dsa-eth.kat-internal.ts` + extend `SignerInputError`**
+- [x] **Task 2: Add `signWithRnd` to `ml-dsa-eth.kat-internal.ts` + extend `SignerInputError`**
   - AC: AC-4-3 (SK length error), AC-4-4 (message type error); AC-4-1 prerequisite (the `signWithRnd` KAT surface is what the G2 test calls).
   - Files: `test/signers/ml-dsa-eth.kat-internal.ts` (extend — ADD `signWithRnd` + extend `@delta-from-ml-dsa` items 4/5); `test/signers/errors.ts` (extend — ADD `SignerInputError` class + `SignerInputErrorCode` union)
   - Dependencies: Task 1 (needs `signWithXof` from `ml-dsa-eth.core.ts`).

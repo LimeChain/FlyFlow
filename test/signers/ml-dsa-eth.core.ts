@@ -357,6 +357,13 @@ const hintCoder = {
     }
     return res;
   },
+  // decode is not consumed by `signWithXof` — only the encode direction
+  // matters for signature packing. It exists only to satisfy noble's
+  // `BytesCoderLen` type contract (`splitCoder` expects bidirectional
+  // coders). Signer-side verification lives in Story 5 scope.
+  decode: (_buf: Uint8Array): Int32Array[] => {
+    throw new Error("hintCoder.decode: not implemented on the signer side");
+  },
 };
 
 const sigCoder = splitCoder("signature", C_TILDE_BYTES, vecCoder(ZCoder, L), hintCoder);
@@ -398,12 +405,6 @@ function polyChknorm(p: Int32Array, B: number): boolean {
     if (Math.abs(crystals.smod(p[i]!)) >= B) return true;
   }
   return false;
-}
-
-/** In-place `a ← a - b mod Q`. */
-function polySub(a: Int32Array, b: Int32Array): Int32Array {
-  for (let i = 0; i < a.length; i++) a[i] = crystals.mod(a[i]! - b[i]!);
-  return a;
 }
 
 // === SampleInBall (FIPS 204 Algorithm 29) — XOF-parameterized ===========
@@ -538,7 +539,6 @@ export function signWithXofInstrumented(
   }
 
   // Step 6 — rejection loop.
-  const alpha = 2 * GAMMA2;
   // ExpandMask block length: `ZCoder.bytesLen` for ML-DSA-44 = 18*256/8 = 576.
   const Z_BLOCK = ZCoder.bytesLen;
 

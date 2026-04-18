@@ -16,3 +16,28 @@ export class NotImplementedError extends Error {
     this.name = "NotImplementedError";
   }
 }
+
+/**
+ * Discriminant codes for {@link SignerInputError}. Tests assert on `err.code`
+ * (established convention shared with `PrgLifecycleError`, `KatFixtureError`,
+ * `NotImplementedError`), NEVER on `err.message` strings.
+ */
+export type SignerInputErrorCode =
+  | "INVALID_SECRET_KEY_LENGTH"
+  | "INVALID_MESSAGE";
+
+/**
+ * Caller-provided input failed a pre-signing validation check (Story 4 —
+ * AC-4-3, AC-4-4). Raised by {@link import("./ml-dsa-eth.kat-internal").signWithRnd}
+ * before any cryptographic work — malformed inputs never reach the core
+ * `signWithXof` fork.
+ */
+export class SignerInputError extends Error {
+  readonly code: SignerInputErrorCode;
+
+  constructor(code: SignerInputErrorCode, message: string) {
+    super(message);
+    this.code = code;
+    this.name = "SignerInputError";
+  }
+}

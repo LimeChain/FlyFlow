@@ -35,12 +35,18 @@
  *    XOF factories per `docs/amendments.md` §A-002. The ETH path passes
  *    `(keccakXofFactory, keccakXofFactory)`; NIST passes
  *    `(shake256XofFactory, shake128XofFactory)`.
- * 4. **ctx handling (informational; exercised by Story 4).** ETH path
- *    uses `ctx = 0x` (empty bytes) to match `generate_KAT_example.py`
- *    and the `.rsp` convention.
- * 5. **Signature layout (informational; Story 4).** Same 32 B cTilde +
- *    2304 B z + 84 B h = 2420 B as NIST, but cTilde is derived via
- *    Keccak-PRG, not SHAKE-256.
+ * 4. **ctx handling.** Production `signUserOp` always passes an empty
+ *    `ctx`; the core signer prepends `0x00 || len(ctx) || ctx` to `msg`
+ *    (the `userOpHash`) before mu computation, byte-matching Python
+ *    `dilithium.py:445`. KAT-only `signWithRnd` takes optional `ctx`
+ *    (default empty).
+ * 5. **Signature layout.** `signWithXof` emits exactly 2420 B raw
+ *    concat: 32 B cTilde (Keccak-PRG over `mu ‖ w1_bytes`) + 2304 B z
+ *    (bit-packed 18 bits/coeff for ML-DSA-44, 4 polynomials) + 84 B h
+ *    (k + ω = 4 + 80; ω entries of nonzero coefficient positions + k
+ *    cumulative counts at positions [80..83]). Returned raw; the
+ *    Solidity verifier applies `abi.encode(bytes cTilde, bytes z,
+ *    bytes h)` at its entry point (Story 5 scope).
  */
 
 import { keccakXofFactory } from "./mldsa-encoding.js";
