@@ -358,11 +358,15 @@ const hintCoder = {
     return res;
   },
   // decode is not consumed by `signWithXof` — only the encode direction
-  // matters for signature packing. It exists only to satisfy noble's
-  // `BytesCoderLen` type contract (`splitCoder` expects bidirectional
-  // coders). Signer-side verification lives in Story 5 scope.
+  // matters for signature packing. It exists solely to satisfy noble's
+  // `BytesCoderLen<T>` type contract (`splitCoder` expects bidirectional
+  // coders). Signer-side verification (hint unpack + bound checks)
+  // belongs to Story 5's on-chain verifier scope; signer callers that
+  // hit this path are misusing the API.
   decode: (_buf: Uint8Array): Int32Array[] => {
-    throw new Error("hintCoder.decode: not implemented on the signer side");
+    throw new Error(
+      "hintCoder.decode: signer surface does not provide hint decoding — consumers belong to Story 5's verifier",
+    );
   },
 };
 
