@@ -265,7 +265,7 @@ Package files: no additions to `dependencies`; `devDependencies` unchanged.
 
 ## Tasks
 
-- [ ] **Task 1: Pre-refactor NIST regression capture** (AC-D-2 safety net; MUST commit before Task 2)
+- [x] **Task 1: Pre-refactor NIST regression capture** (AC-D-2 safety net; MUST commit before Task 2)
   - AC: AC-3-3 (capture half — frozen fixture)
   - Files: `scripts/capture-nist-regression.ts` (new; ~60 LOC), `test/fixtures/kat/nist-regression/vectors.json` (new; ~100 vectors)
   - Dependencies: none — runs against pre-refactor `mldsa-encoding.ts` (hash `ec082d1...`)
