@@ -11,10 +11,12 @@ import {ZKNOX_dilithium} from "../ETHDILITHIUM/src/ZKNOX_dilithium.sol";
 /// @author pqc-4337-laim
 /// @notice ERC-4337 v0.7 account that delegates signature verification to a
 ///         ZKNoxHQ ETHDILITHIUM verifier (DD-9). Stores the SSTORE2-pointer
-///         form of the public key (amendment A-003); the raw 1,312-byte
-///         ML-DSA-44 NIST-encoded key is supplied off-chain via the signer
-///         module, ABI-encoded by the test setup into the (aHat, tr, t1)
-///         tuple the verifier's `_readPubKey` decodes, and SSTORE2-written by
+///         form of the public key (per architecture §Data Models —
+///         DD-7 reshaped payload is SSTORE2-written, only the 20-byte
+///         pointer lives on the account); the raw 1,312-byte ML-DSA-44
+///         NIST-encoded key is supplied off-chain via the signer module,
+///         ABI-encoded by the test setup into the (aHat, tr, t1) tuple the
+///         verifier's `_readPubKey` decodes, and SSTORE2-written by
 ///         `dilithiumVerifier.setKey()` before initialization.
 contract MlDsaAccount is SimpleAccount {
     /// @notice Reverts when the verifier fails to decode the signature

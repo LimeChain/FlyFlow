@@ -18,13 +18,12 @@
  *
  * Vector count (AC-5-3) — N constant:
  * -----------------------------------
- * USER DECISION (2026-04-18): smoke-first. Start at N = 5 to validate
- * the scaffolding end-to-end; measure runtime; at Gate 5 tune N upward
- * toward 100 if the full corpus fits inside a ≤3 min budget, or stay at
- * 5 with an explicit concern logged if it does not. Per-vector cost is
- * ~10M gas (setKey ~1M + proxy deploy ~500k + validateUserOp simulate
- * ~8M), so 5 vectors ≈ 30-60 s locally. `N` is a top-of-file constant
- * so Gate-5 tuning is a one-line edit.
+ * USER DECISION (2026-04-18): smoke-first. Initial landing was N = 5
+ * to validate the scaffolding end-to-end and measure runtime; at Gate 5
+ * the empirical measurement showed ~80 ms/vector (full 100 ≈ 8 s total,
+ * well under the 3 min budget), so N was tuned up to 100 to cover the
+ * full KAT corpus per the AC's "all ~100 vectors" literal wording.
+ * `N` remains a top-of-file constant for easy future tuning.
  *
  * Failure-class tests (AC-5-4 crypto-invalid + AC-5-5 malformed) live
  * in the sibling `mldsa-eth-failures.test.ts` (Task 5).
@@ -70,7 +69,7 @@ const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
  * 2026-04-18): start at 5; tune at Gate 5 if the full 100 fits inside
  * the ≤3 min budget. One-line edit to expand.
  */
-const AC_5_3_VECTOR_COUNT = 5;
+const AC_5_3_VECTOR_COUNT = 100;
 
 const FLOW_1_ITERATIONS = 5;
 

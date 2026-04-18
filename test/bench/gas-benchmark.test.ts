@@ -437,7 +437,8 @@ describe("Story 5-1 — Gas benchmark", () => {
       const ecdsa = byScheme.get("ecdsa");
       const falcon = byScheme.get("falcon");
       const mldsa = byScheme.get("mldsa");
-      if (ecdsa && falcon && mldsa) {
+      const mldsaEth = byScheme.get("mldsa-eth");
+      if (ecdsa && falcon && mldsa && mldsaEth) {
         assert.ok(
           ecdsa.calldataGas < falcon.calldataGas,
           `calldataGas ordering broken: ecdsa(${ecdsa.calldataGas}) >= falcon(${falcon.calldataGas})`,
@@ -445,6 +446,21 @@ describe("Story 5-1 — Gas benchmark", () => {
         assert.ok(
           falcon.calldataGas < mldsa.calldataGas,
           `calldataGas ordering broken: falcon(${falcon.calldataGas}) >= mldsa(${mldsa.calldataGas})`,
+        );
+        // mldsa + mldsa-eth share the same 2420 B signature layout per
+        // DD-8 LOCKED (cTilde(32) || z(2304) || h(84)); calldata gas
+        // depends on non-zero byte distribution inside the signature,
+        // which varies per sign call. Assert same order of magnitude
+        // rather than strict equality: both PQC mldsa variants produce
+        // calldata gas within 5% of each other.
+        const calldataDelta =
+          mldsa.calldataGas > mldsaEth.calldataGas
+            ? mldsa.calldataGas - mldsaEth.calldataGas
+            : mldsaEth.calldataGas - mldsa.calldataGas;
+        const calldataRefBp = (calldataDelta * 10000n) / mldsa.calldataGas;
+        assert.ok(
+          calldataRefBp < 500n,
+          `mldsa vs mldsa-eth calldata divergence exceeds 5%: mldsa=${mldsa.calldataGas} mldsa-eth=${mldsaEth.calldataGas} (delta=${calldataDelta}, ${calldataRefBp}bp) — same 2420 B layout per DD-8 should produce near-identical byte-distribution costs`,
         );
       }
 
@@ -536,8 +552,15 @@ describe("Story 5-1 — Gas benchmark", () => {
         results.push(r);
       }
 
-      const [ecdsaResult, falconResult, mldsaResult, mldsaEthResult] =
-        results as [BenchResult, BenchResult, BenchResult, BenchResult];
+      // Name-based lookup rather than position-dependent destructure —
+      // a future SCHEMES reorder doesn't silently break this AC-4
+      // assertion because each expected result is looked up by its
+      // scheme name. Non-null assertion per AC-5-6's length check above.
+      const byScheme = new Map(results.map((r) => [r.scheme, r]));
+      const ecdsaResult = byScheme.get("ecdsa")!;
+      const falconResult = byScheme.get("falcon")!;
+      const mldsaResult = byScheme.get("mldsa")!;
+      const mldsaEthResult = byScheme.get("mldsa-eth")!;
 
       for (const r of results) {
         console.log(

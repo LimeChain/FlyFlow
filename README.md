@@ -86,7 +86,7 @@ The committed `docs/gas-report.md` reflects the most recent benchmark run that l
 | `mldsa`     | ML-DSA-44 (NIST, SHAKE)           |       2420 B   | [ZKNoxHQ/ETHDILITHIUM](https://github.com/ZKNoxHQ/ETHDILITHIUM) — `ZKNOX_dilithium.sol`              |
 | `mldsa-eth` | ML-DSA-44 (Keccak-PRG variant)    |       2420 B   | [ZKNoxHQ/ETHDILITHIUM](https://github.com/ZKNoxHQ/ETHDILITHIUM) — `ZKNOX_ethdilithium.sol`           |
 
-ZKNoxHQ authored the ETHDilithium design and both Solidity verifiers (`ZKNOX_dilithium.sol`, `ZKNOX_ethdilithium.sol`). This repository integrates their audited implementations as ERC-4337 account modules without modifying submodule sources (NFR-5).
+ZKNoxHQ authored the ETHDilithium design and all three PQC Solidity verifiers integrated here (`ZKNOX_falcon.sol`, `ZKNOX_dilithium.sol`, `ZKNOX_ethdilithium.sol`). This repository integrates their audited implementations as ERC-4337 account modules without modifying submodule sources (NFR-5).
 
 The `mldsa` and `mldsa-eth` schemes share the same 2420-byte signature layout (`cTilde(32) || z(2304) || h(84)`) and identical FIPS 204 parameters — they differ only in the XOF primitive driving keygen + sign: NIST uses SHAKE-256/SHAKE-128, ETH uses Keccak-PRG for every XOF role. Keys generated under one variant are NOT interchangeable with the other.
 

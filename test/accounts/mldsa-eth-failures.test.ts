@@ -278,24 +278,34 @@ describe("Story 5 Task 5 — MlDsaEthAccount failure classes", () => {
           ),
         (err: unknown) => {
           if (!(err instanceof BaseError)) throw err;
+          // Three account contracts (MlDsaAccount, FalconAccount,
+          // MlDsaEthAccount) declare the same SignatureMalformed()
+          // custom error with identical 4-byte selector 0x2c3c2fe1.
+          // Both walker paths bind the match to the account-under-test's
+          // address so a test-setup mistake routing to the wrong account
+          // cannot spuriously satisfy this predicate.
+          const message = err.message.toLowerCase();
+          const boundToAccount = message.includes(accountAddress);
           // Canonical viem path: ContractFunctionRevertedError with a
           // decoded `data.errorName`. Populated when viem's ABI-aware
-          // decoder runs.
+          // decoder runs — but errorName is ABI-name-scoped, not
+          // address-scoped, so AND with the address check.
           const revert = err.walk(
             (e) => e instanceof ContractFunctionRevertedError,
           ) as ContractFunctionRevertedError | null;
-          if (revert?.data?.errorName === "SignatureMalformed") return true;
-          // HH3 EDR path: the revert surfaces as a `SolidityError` at the
+          if (
+            revert?.data?.errorName === "SignatureMalformed" &&
+            boundToAccount
+          ) {
+            return true;
+          }
+          // HH3 EDR path: revert surfaces as a `SolidityError` at the
           // chain tail and viem's decoder doesn't populate `errorName`,
           // but the EDR message text deterministically contains
-          // "SignatureMalformed()". Bind the match to the account-under-
-          // test's address so the co-defined `SignatureMalformed()` in
-          // MlDsaAccount + FalconAccount (same 4-byte selector, different
-          // origin contract) can't spuriously satisfy this predicate.
-          const message = err.message.toLowerCase();
+          // "SignatureMalformed()".
           return (
             /custom error 'signaturemalformed\(\)'/.test(message) &&
-            message.includes(accountAddress)
+            boundToAccount
           );
         },
       );

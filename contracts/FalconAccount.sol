@@ -10,11 +10,13 @@ import {ZKNOX_falcon} from "../ETHFALCON/src/ZKNOX_falcon.sol";
 /// @title FalconAccount
 /// @author pqc-4337-laim
 /// @notice ERC-4337 v0.7 account that delegates signature verification to a
-///         ZKNoxHQ ETHFALCON verifier (DD-9). Stores the SSTORE2-pointer form
-///         of the public key (C-005 resolution / amendment A-003); the raw
-///         897-byte Falcon-512 key is supplied off-chain via the signer
-///         module, encoded by the test setup, and written into the verifier's
-///         SSTORE2 storage before initialization.
+///         ZKNoxHQ ETHFALCON verifier (DD-9). Stores the SSTORE2-pointer
+///         form of the public key (per architecture §Data Models — only
+///         the 20-byte pointer lives on the account; the encoded key lives
+///         inside the SSTORE2-emitted contract the pointer addresses); the
+///         raw 897-byte Falcon-512 key is supplied off-chain via the signer
+///         module, encoded by the test setup, and written into the
+///         verifier's SSTORE2 storage before initialization.
 contract FalconAccount is SimpleAccount {
     /// @notice Reverts when the verifier fails to decode the signature
     ///         (format error). Cryptographic failure returns
