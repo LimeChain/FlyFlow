@@ -2,7 +2,7 @@
 story_id: "4"
 title: "Signer port + G2 KAT"
 size: "L"
-status: "ready-for-dev"
+status: "done"
 wave: 4
 feature: mldsa-eth
 created: 2026-04-18
@@ -337,13 +337,13 @@ Package files: no additions to `dependencies`; `devDependencies` unchanged.
   - Dependencies: Task 1 (needs `signWithXof` from `ml-dsa-eth.core.ts`).
   - Why: The KAT surface is the thin, deterministic entry point the G2 test calls. Validate `sk.length === 2560` and throw `SignerInputError("INVALID_SECRET_KEY_LENGTH", ...)` on mismatch; validate `msg` is `Uint8Array` or `0x`-hex (coerce the latter via `hexToBytes`) and throw `SignerInputError("INVALID_MESSAGE", ...)` otherwise; default `ctx` to `new Uint8Array(0)`; delegate to `signWithXof(sk, msg, rnd, ctx, keccakXofFactory)`; return `bytesToHex(sig)`. Extend the `@delta-from-ml-dsa` block's items 4 + 5 per Dev Notes §"M-3 resolution — EXTENSION".
 
-- [ ] **Task 3: Add `signUserOp` to `ml-dsa-eth.ts`**
+- [x] **Task 3: Add `signUserOp` to `ml-dsa-eth.ts`**
   - AC: AC-4-2 (production signature length + `PackedUserOperation` shape), AC-4-6 (hedged path differs on repeated calls).
   - Files: `test/signers/ml-dsa-eth.ts` (extend — ADD `signUserOp` + extend `@delta-from-ml-dsa` items 4/5)
   - Dependencies: Task 1 (needs `signWithXof`). MUST NOT depend on Task 2 — production does NOT import `signWithRnd`.
   - Why: The production surface. Compute `userOpHash` via shared `computeUserOpHash`; source `rnd` via `globalThis.crypto.getRandomValues(new Uint8Array(32))`; delegate to `signWithXof(sk, hexToBytes(userOpHash), rnd, new Uint8Array(0), keccakXofFactory)`; return `{ ...userOp, signature: bytesToHex(sig) }`. Matches `test/signers/ml-dsa.ts:31-44` shape exactly. Extend the `@delta-from-ml-dsa` block's items 4 + 5 per Dev Notes §"M-3 resolution — EXTENSION".
 
-- [ ] **Task 4: G2 KAT byte-identity + rejection-counter test**
+- [x] **Task 4: G2 KAT byte-identity + rejection-counter test**
   - AC: AC-4-1 (primary), AC-4-5 (rejection counter > 0 across ~100 vectors).
   - Files: `test/signers/ml-dsa-eth.sign.kat.test.ts` (new; ~40 LOC)
   - Dependencies: Tasks 1 + 2 (needs `signWithXofInstrumented` + `signWithRnd`).
@@ -359,7 +359,7 @@ Package files: no additions to `dependencies`; `devDependencies` unchanged.
     - Cost: noble sign is ~200-300 ms per call × 100 vectors ≈ 25 s. Add second instrumented pass → ≈ 50 s total. Acceptable (comparable to Story 3 G1 KAT cost).
     - No Hardhat required — pure-JS `node:test`.
 
-- [ ] **Task 5: Input-validation + production-path + hedged-sign test**
+- [x] **Task 5: Input-validation + production-path + hedged-sign test**
   - AC: AC-4-2 (production path returns 2420-byte signature), AC-4-3 (sk-length error), AC-4-4 (message-type error), AC-4-6 (hedged path differs).
   - Files: `test/signers/ml-dsa-eth.sign.test.ts` (new; ~60 LOC)
   - Dependencies: Tasks 2 + 3 (needs `signWithRnd` for input-validation tests; needs `keygen` + `signUserOp` for production-path + hedged tests).
