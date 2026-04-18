@@ -50,7 +50,7 @@ Submodule source is never modified in-tree (NFR-5). Any necessary adapter logic 
    npm run compile
    ```
 
-4. Run the full validation suite (ECDSA, Falcon, ML-DSA acceptance + rejection tests + low-S invariants + the gas benchmark):
+4. Run the full validation suite (ECDSA, Falcon, ML-DSA (NIST), and ML-DSA-ETH (Keccak-PRG variant) acceptance + rejection tests + low-S invariants + the gas benchmark):
 
    ```bash
    npm test
@@ -73,9 +73,24 @@ Submodule source is never modified in-tree (NFR-5). Any necessary adapter logic 
 7. Read the report:
 
    - **Path:** [`docs/gas-report.md`](docs/gas-report.md)
-   - **What you'll see:** a single table with one row per scheme (ecdsa, falcon, mldsa) showing absolute gas, calldata vs execution split, overhead vs the ECDSA baseline as a percentage, and per-scheme variance.
+   - **What you'll see:** a single table with one row per scheme (ecdsa, falcon, mldsa, mldsa-eth) showing absolute gas, calldata vs execution split, overhead vs the ECDSA baseline as a percentage, and per-scheme variance.
 
 The committed `docs/gas-report.md` reflects the most recent benchmark run that landed on `main` — re-run steps 5–6 locally to refresh against your machine's gas numbers.
+
+## Supported schemes
+
+| Scheme      | Algorithm                         | Signature size | Verifier origin                                                                                      |
+|-------------|-----------------------------------|---------------:|------------------------------------------------------------------------------------------------------|
+| `ecdsa`     | secp256k1 ECDSA                   |         65 B   | Ethereum-native                                                                                      |
+| `falcon`    | Falcon-512                        |       1064 B   | [ZKNoxHQ/ETHFALCON](https://github.com/ZKNoxHQ/ETHFALCON)                                            |
+| `mldsa`     | ML-DSA-44 (NIST, SHAKE)           |       2420 B   | [ZKNoxHQ/ETHDILITHIUM](https://github.com/ZKNoxHQ/ETHDILITHIUM) — `ZKNOX_dilithium.sol`              |
+| `mldsa-eth` | ML-DSA-44 (Keccak-PRG variant)    |       2420 B   | [ZKNoxHQ/ETHDILITHIUM](https://github.com/ZKNoxHQ/ETHDILITHIUM) — `ZKNOX_ethdilithium.sol`           |
+
+ZKNoxHQ authored the ETHDilithium design and both Solidity verifiers (`ZKNOX_dilithium.sol`, `ZKNOX_ethdilithium.sol`). This repository integrates their audited implementations as ERC-4337 account modules without modifying submodule sources (NFR-5).
+
+The `mldsa` and `mldsa-eth` schemes share the same 2420-byte signature layout (`cTilde(32) || z(2304) || h(84)`) and identical FIPS 204 parameters — they differ only in the XOF primitive driving keygen + sign: NIST uses SHAKE-256/SHAKE-128, ETH uses Keccak-PRG for every XOF role. Keys generated under one variant are NOT interchangeable with the other.
+
+**Python dev-oracle isolation (NFR-3):** the Python reference in `ETHDILITHIUM/pythonref/` is invoked exclusively by `scripts/generate-kat-fixtures.ts` at fixture-regeneration time (`npm run kat:regen`). `npm test` never spawns a Python interpreter — all runtime crypto is TypeScript + Solidity.
 
 ## Fixtures
 
