@@ -41,8 +41,9 @@
  *          to recover `(ζ, rnd)`;
  *        - calls `Dilithium2.pk_for_eth(pk, _xof=Keccak256PRNG,
  *          _xof2=Keccak256PRNG)` and ABI-encodes the returned
- *          `(A_hat, tr, t1_new)` via `eth_abi.encode(['bytes','bytes32',
- *          'bytes'], ...)` for the `reshapedPublicKey` slot;
+ *          `(A_hat, tr, t1_new)` via `eth_abi.encode(['bytes','bytes',
+ *          'bytes'], ...)` for the `reshapedPublicKey` slot (per
+ *          `docs/amendments.md` §A-001 — `tr` is 64 B, not 32 B);
  *        - drives `Keccak256PRNG` directly to produce Layer-2 PRG boundary
  *          vectors (cross-extract, multi-inject, empty-seed, ML-DSA-shaped
  *          seed) — emits both via stdout NDJSON.
@@ -616,8 +617,9 @@ def encode_matrix_bytes(A_hat):
 
     pk_for_eth returns A_hat in NTT domain. The canonical ETHDilithium
     on-chain encoding packs each coeff as a 4-byte big-endian uint32,
-    row-major. Emitting the flat bytes blob lets abi.encode(bytes,bytes32,
-    bytes) match the DD-7 'reshapedPublicKey' slot shape.
+    row-major. Emitting the flat bytes blob lets abi.encode(bytes,bytes,
+    bytes) match the DD-7 'reshapedPublicKey' slot shape per A-001
+    ('tr' is variable-length bytes, not bytes32).
     """
     flat = bytearray()
     rows = A_hat._data if hasattr(A_hat, "_data") else A_hat.rows

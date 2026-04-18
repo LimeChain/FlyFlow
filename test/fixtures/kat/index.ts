@@ -92,7 +92,7 @@ export interface KatVector {
   publicKey: string;
   /** 2560 B hex — raw Dilithium2 sk (G1 expected / G2 input). */
   secretKey: string;
-  /** Variable — ABI-encoded (bytes,bytes32,bytes) tuple (G3 expected / G4 input). */
+  /** Variable — ABI-encoded (bytes,bytes,bytes) tuple per `docs/amendments.md` §A-001 (G3 expected / G4 input). Expected decoded lengths: `aHatEncoded` = 16384 B, `tr` = 64 B (Keccak-PRG stream), `t1Encoded` = 4096 B. */
   reshapedPublicKey: string;
   /** Variable hex — G2 input. */
   message: string;
