@@ -31,7 +31,7 @@ epics:
         slug: signer-port
         title: Signer port + G2 KAT
         size: L
-        status: backlog
+        status: in-progress
         wave: 4
         dependencies: ["1", "2", "3"]
       - id: "5"

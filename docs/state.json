@@ -3,7 +3,7 @@
   "flow": "greenfield",
   "version": "next-2.0",
   "created": "2026-04-16T09:00:07.736Z",
-  "lastUpdated": "2026-04-18T14:50:00.000Z",
+  "lastUpdated": "2026-04-18T14:55:00.000Z",
   "currentPhase": "implement",
   "currentStep": null,
   "currentCheckpoint": null,
@@ -38,7 +38,15 @@
   "storiesDone": 3,
   "storiesTotal": 5,
   "changeStories": [],
-  "currentStory": null,
+  "currentStory": {
+    "storyId": "4",
+    "slug": "signer-port",
+    "title": "Signer port + G2 KAT",
+    "size": "L",
+    "wave": 4,
+    "status": "in-progress",
+    "startedAt": "2026-04-18T14:55:00.000Z"
+  },
   "tooling": {
     "format": null,
     "lint": null,
@@ -97,7 +105,7 @@
       "sizeDistribution": {
         "S": 0,
         "M": 3,
-        "L": 0
+        "L": 1
       }
     },
     "tasks": {
@@ -121,7 +129,7 @@
       "findingsDeferred": 3
     },
     "quality": {
-      "interfaceAudits": 4,
+      "interfaceAudits": 5,
       "interfaceMismatches": 0,
       "amendments": 4,
       "concerns": 3,
