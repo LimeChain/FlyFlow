@@ -405,14 +405,10 @@ function makeHintCoef(z: number, r: number): number {
 
 /** FIPS 204 `\|·\|∞` ≥ B check on a polynomial after centering mod Q. */
 function polyChknorm(p: Int32Array, B: number): boolean {
-  // Returns true iff ANY coefficient's centered-mod absolute value ≥ B.
-  // `.some()` form rather than an early-return loop — the loop shape
-  // trips the test-integrity Java-hollow-return heuristic in
-  // .claude/hooks/laim-verify-checks.sh every commit that touches
-  // this file.
-  return Array.prototype.some.call(p, (coef: number) =>
-    Math.abs(crystals.smod(coef)) >= B,
-  );
+  for (let i = 0; i < N; i++) {
+    if (Math.abs(crystals.smod(p[i]!)) >= B) return true;
+  }
+  return false;
 }
 
 // === SampleInBall (FIPS 204 Algorithm 29) — XOF-parameterized ===========
