@@ -44,29 +44,13 @@ describe("Keccak-PRG KAT (G0 — byte-identity against Python ref + Zhenfei C ca
         outputs.push(prg.extract(n));
       }
 
-      if (vector.expected_slices !== undefined) {
-        // Block-stream representation: concat all extract outputs, then
-        // compare only the documented slices. Used by Forge test mirrors
-        // where the Solidity reference exposes `pool` at per-block boundaries
-        // (e.g., high-32-B or high-16-B of each 32-B block) rather than
-        // a single concatenated output.
-        const total = outputs.reduce((acc, o) => acc + o.length, 0);
-        const concat = new Uint8Array(total);
-        let offset = 0;
-        for (const o of outputs) {
-          concat.set(o, offset);
-          offset += o.length;
-        }
-        for (const slice of vector.expected_slices) {
-          const actual = concat.subarray(slice.from, slice.to);
-          assert.equal(
-            bytesToHex(actual),
-            slice.value,
-            `${vector.id}: slice [${slice.from}..${slice.to}) mismatch`,
-          );
-        }
-      } else {
-        // Standard per-extract-call comparison.
+      // Assert `expected[]` in full whenever present — the strongest
+      // byte-identity check. Then additionally assert any `expected_slices`,
+      // which provide audit-trail anchors against the Solidity-API reference
+      // (per-block `pool` reads in ZKNox's Forge test). Both come from the
+      // same generator; asserting both additively is stronger than either
+      // alone and costs nothing.
+      if (vector.expected !== undefined && vector.expected.length > 0) {
         assert.equal(
           outputs.length,
           vector.expected.length,
@@ -84,6 +68,29 @@ describe("Keccak-PRG KAT (G0 — byte-identity against Python ref + Zhenfei C ca
             bytesToHex(actual),
             expected,
             `${vector.id}: extract[${i}] (length ${vector.extracts[i]}) mismatch`,
+          );
+        }
+      }
+
+      if (vector.expected_slices !== undefined) {
+        // Block-stream representation from ZKNox's Forge test mirrors: concat
+        // all extract outputs, compare the documented slices (often per-block
+        // `pool` reads, e.g., high-32-B or high-16-B of each 32-B block).
+        // Redundant with `expected[]` when both present, but keeps the audit
+        // trail to the Solidity reference auditable.
+        const total = outputs.reduce((acc, o) => acc + o.length, 0);
+        const concat = new Uint8Array(total);
+        let offset = 0;
+        for (const o of outputs) {
+          concat.set(o, offset);
+          offset += o.length;
+        }
+        for (const slice of vector.expected_slices) {
+          const actual = concat.subarray(slice.from, slice.to);
+          assert.equal(
+            bytesToHex(actual),
+            slice.value,
+            `${vector.id}: slice [${slice.from}..${slice.to}) mismatch`,
           );
         }
       }

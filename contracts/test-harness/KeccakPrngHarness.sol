@@ -22,6 +22,16 @@ import {KeccakPrng, initPrng, refill} from "../../ETHDILITHIUM/src/ZKNOX_keccak_
 ///         `inject(a); inject(b); flip()`, so this is semantically
 ///         equivalent to the JS multi-inject-then-flip path. Test-only
 ///         contract — not deployed to production.
+///
+///         `ZKNOX_keccak_prng.sol` also exports `nextByte(KeccakPrng) ->
+///         (uint8, KeccakPrng)` for single-byte reads. It is intentionally
+///         NOT exposed here: AC-2-6 only requires block-stream byte-
+///         identity for Layer-2 fixtures, and the `extract` entry point
+///         already drives the same state-machine transitions (`initPrng`
+///         + `refill` + `pool` reads). Adding a `nextByte` passthrough
+///         would duplicate state-tracking semantics without strengthening
+///         any AC — defer to a Story 3+ story if rejection-sampling
+///         call-sites need byte-granular Solidity parity.
 contract KeccakPrngHarness {
     /// @notice Drive the Keccak-PRG state machine: `initPrng(input)` +
     ///         pool-reads with `refill` between 32-byte blocks, returning

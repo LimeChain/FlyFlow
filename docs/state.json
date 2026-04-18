@@ -120,12 +120,12 @@
       "avgVerificationCycles": 0
     },
     "codeReview": {
-      "reviewsRun": 1,
-      "totalFindings": 4,
+      "reviewsRun": 2,
+      "totalFindings": 6,
       "criticalFindings": 0,
       "highFindings": 0,
       "mediumFindings": 3,
-      "lowFindings": 1,
+      "lowFindings": 3,
       "findingsDeferred": 3
     },
     "quality": {
