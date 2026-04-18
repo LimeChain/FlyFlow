@@ -216,3 +216,55 @@ Runs on every `npx hardhat test`. Fails the suite on any violation. Semantically
 - Story 3 Task 3 implements the grep test instead of ESLint configuration.
 - Story file's Dev Notes reference A-003.
 - If ESLint is adopted in a future story, A-003 becomes moot — remove the runtime-grep test and replace with the proper ESLint rule.
+
+---
+
+## A-004: mldsa-eth fixture `reshapedPublicKey` is Python-format, not TS-format — Story 3 AC-3-5 Keccak oracle switched to self-consistency
+
+- **Story:** 3 (XOF refactor + keygen port + G1 KAT + NIST regression)
+- **Task:** 2 (`mldsa-encoding.ts` XOF-factory refactor + XOF-isolation test)
+- **Date:** 2026-04-18
+- **Classification:** Rule 2 (Moderate — test-contract narrowing; no wire-format change)
+- **Affects:** Story 3 §"must_haves" truth at line 374 (Keccak golden source for AC-3-5); Story 3 §Task 2 step 7 (interleaved XOF-isolation test sketch); does NOT affect architecture or any downstream story.
+
+### Original (`docs/stories/3-xof-refactor-keygen.md` must_haves, line 374)
+
+> "Interleaved test in `mldsa-encoding.xof-isolation.test.ts` reshapes the same `pk` with SHAKE → Keccak → SHAKE factories in one process and each reshape matches its own golden (**SHAKE golden from the NIST regression fixture; Keccak golden from `loadKatVectors('mldsa-eth')[*].reshapedPublicKey`**) — AC-3-5."
+
+### Actual (verified by reading Story 1 fixture-gen Python + Solidity consumer)
+
+The mldsa-eth fixture's `reshapedPublicKey` field is encoded by Story 1's Python batch as `eth_abi.encode(['bytes','bytes','bytes'], [a_hat_flat_bytes, tr, t1_flat_bytes])` where each polynomial's 256 coefficients are packed row-major as 4-byte big-endian uint32 (`encode_matrix_bytes` / `encode_vector_bytes` in `scripts/generate-kat-fixtures.ts:615-643`). TS `preparePublicKeyForDeployment` produces `abi.encode(bytes aHatEncoded, bytes tr, bytes t1Encoded)` where the inner `bytes` blobs are themselves `abi.encode(uint256[][][], ...)` / `abi.encode(uint256[][], ...)` — the SAME numeric data under a DIFFERENT ABI wrapper.
+
+Evidence (byte-level, mldsa-eth vec-001 pk):
+
+| Format | Total bytes | aHat inner | t1 inner | Wrapper |
+|--------|-------------|-----------|----------|---------|
+| Python (fixture) | 20,736 | 16,416 (flat 4B-BE) | 4,128 (flat 4B-BE) | `(bytes,bytes,bytes)` |
+| TS (post-refactor) | 22,400 | 17,760 (`uint256[][][]` ABI) | 4,448 (`uint256[][]` ABI) | `(bytes,bytes,bytes)` |
+
+Only the TS format is consumable by `ZKNOX_dilithium._readPubKey` (ETHDILITHIUM/src/ZKNOX_dilithium.sol:91-96), which `abi.decode`s the inner blobs as `uint256[][][]` / `uint256[][]`. The Python format is a fixture-storage convention (canonical for ETHDilithium's OFF-chain Python reference), NOT the wire format the on-chain contract consumes.
+
+### Impact
+
+- **AC-3-5 isolation test** cannot byte-compare the TS Keccak output against the mldsa-eth fixture's `reshapedPublicKey` — the ABI shapes diverge. The story's must_have at line 374 overspecifies the Keccak oracle in a way that is not byte-achievable.
+- **AC-D-1** (existing NIST suite byte-identical) is UNAFFECTED. `MlDsaAccount` tests continue to go through `test/fixtures/mldsa.ts:registerPublicKey` → TS `preparePublicKeyForDeployment` → Solidity `setKey`. The TS output is the correct on-chain format. NIST-path byte-identity has been confirmed against the pre-refactor baseline (100/100 vectors via the NIST regression fixture — AC-3-3).
+- **AC-3-3** (NIST regression — 100-vector) is UNAFFECTED and PASSES — the NIST regression fixture (`test/fixtures/kat/nist-regression/vectors.json`) was captured in Task 1 using the same TS function, so TS-format byte-identity holds.
+- **G1 KAT (AC-3-1)** uses the fixture's `publicKey` + `secretKey` fields (NOT `reshapedPublicKey`). Unaffected.
+- **Story 5 G3 pk-transform KAT** will need to either (a) regenerate the mldsa-eth fixture's `reshapedPublicKey` in TS format, or (b) add a TS-side verifier that decodes both formats and compares the underlying coefficient data structurally. Out of Story 3 scope.
+
+### Rationale
+
+Caught at Task 2 when the xof-isolation test's first Keccak assertion failed with a length mismatch (expected 20,736 from fixture, got 22,400 from TS). Root-cause inspection of `scripts/generate-kat-fixtures.ts:615-643` (`encode_matrix_bytes` flattens to 4B-BE per coefficient and wraps once) vs `test/signers/mldsa-encoding.ts:186-197` (wraps coefficients as `uint256[][][]` then again as `bytes`) showed the two formats are semantically equivalent but ABI-different.
+
+Fixing the fixture format to match TS would require Story 1 fixture regeneration (new Python batch, re-run capture, re-verify all downstream Story 2-4 consumers). Fixing the TS format to match the Python fixture would break `ZKNOX_dilithium._readPubKey` — unacceptable. The test can instead be narrowed to verify the same isolation property through a byte-achievable oracle: self-consistency across interleaved factory calls.
+
+### Resolution
+
+- Story 3 Task 2 implements `test/signers/mldsa-encoding.xof-isolation.test.ts` with the following oracle pairing:
+  1. **SHAKE pass 1** (NIST pk) — assert equals NIST regression fixture's `expectedReshapedPk` for vector 0 (external golden, captured pre-refactor).
+  2. **Keccak pass 2** (mldsa-eth pk) — capture output as per-invocation baseline (no external golden byte-achievable per this amendment).
+  3. **SHAKE pass 3** (NIST pk) — assert equals pass 1 AND equals NIST regression golden (isolation + determinism double-check).
+  4. **Keccak pass 4** (mldsa-eth pk) — assert equals pass 2 (isolation + determinism across an intervening SHAKE call).
+- This preserves the AC-3-5 isolation guarantee (interleaved factories produce consistent per-factory outputs; no cross-contamination) while switching the Keccak oracle from "fixture golden" (unachievable per above) to "pass-2 ≡ pass-4 self-consistency across a SHAKE interleave".
+- `docs/stories/3-xof-refactor-keygen.md` must_have at line 374 updated to reflect the amended oracle.
+- Story 5's G3 pk-transform KAT gets a new Dev Note indicating the fixture-format reconciliation is its own scope.

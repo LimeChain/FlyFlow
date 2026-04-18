@@ -1,16 +1,21 @@
 /**
  * Story 3 Task 1 — Pre-refactor NIST regression capture (AC-3-3 safety net).
  *
- * Captures the byte-level output of the PRE-refactor
- * `preparePublicKeyForDeployment(pk)` over all 100 vectors in
- * `ETHDILITHIUM/pythonref/assets/PQCsignKAT_Dilithium2.rsp`, writing
- * `test/fixtures/kat/nist-regression/vectors.json`. The committed fixture
- * is the baseline against which Task 2's refactored two-factory signature
- * must produce byte-identical output; any divergence triggers the
- * refactor-rollback protocol (architecture §"Error Handling Strategy").
+ * Captures the byte-level output of `preparePublicKeyForDeployment` over
+ * all 100 vectors in `ETHDILITHIUM/pythonref/assets/PQCsignKAT_Dilithium2.rsp`,
+ * writing `test/fixtures/kat/nist-regression/vectors.json`. The committed
+ * fixture is the PRE-refactor baseline captured at Task 1 time; Task 2's
+ * refactored two-factory signature (A-002) MUST reproduce it byte-for-byte,
+ * and any divergence triggers the refactor-rollback protocol (architecture
+ * §"Error Handling Strategy"). Re-running this script post-refactor against
+ * the NIST call pair `(shake256XofFactory, shake128XofFactory)` — per A-002
+ * mapping NIST `_xof = SHAKE-256` / `_xof2 = SHAKE-128` — produces a
+ * byte-identical JSON when the refactor is correct; that is exactly the
+ * AC-3-3 post-refactor assertion from the other direction.
  *
- * MUST commit BEFORE Task 2 begins — capturing after the refactor would
- * record the refactored code's output, defeating the safety net.
+ * MUST have been committed BEFORE Task 2 begins — capturing after the
+ * refactor would record the refactored code's output, defeating the
+ * safety net.
  *
  * Invocation: `npx tsx scripts/capture-nist-regression.ts`
  *
@@ -27,7 +32,11 @@ import { fileURLToPath } from "node:url";
 
 import { bytesToHex, hexToBytes, type Hex } from "viem";
 
-import { preparePublicKeyForDeployment } from "../test/signers/mldsa-encoding.js";
+import {
+  preparePublicKeyForDeployment,
+  shake128XofFactory,
+  shake256XofFactory,
+} from "../test/signers/mldsa-encoding.js";
 
 const THIS_FILE = fileURLToPath(import.meta.url);
 const REPO_ROOT = path.resolve(path.dirname(THIS_FILE), "..");
@@ -112,7 +121,13 @@ function main(): void {
         `Vector ${r.count}: pk length ${pkBytes.length} ≠ ${PUBLIC_KEY_BYTES}`,
       );
     }
-    const reshaped = preparePublicKeyForDeployment(pkBytes);
+    // A-002 two-factory NIST call: xofFactory = SHAKE-256 (H/tr),
+    //                              xofFactory2 = SHAKE-128 (ExpandA).
+    const reshaped = preparePublicKeyForDeployment(
+      pkBytes,
+      shake256XofFactory,
+      shake128XofFactory,
+    );
     return {
       id: `nist-vec-${String(r.count).padStart(3, "0")}`,
       pk: bytesToHex(pkBytes),

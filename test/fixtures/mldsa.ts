@@ -28,7 +28,11 @@
 import hre from "hardhat";
 import { hexToBytes, type Hex } from "viem";
 
-import { preparePublicKeyForDeployment } from "../signers/mldsa-encoding.js";
+import {
+  preparePublicKeyForDeployment,
+  shake128XofFactory,
+  shake256XofFactory,
+} from "../signers/mldsa-encoding.js";
 
 type ViemConnection = Awaited<ReturnType<typeof hre.network.connect>>["viem"];
 
@@ -46,7 +50,13 @@ export async function registerPublicKey(
   dilithiumVerifier: Awaited<ReturnType<typeof deployDilithiumVerifier>>["dilithiumVerifier"],
   rawPublicKey: Uint8Array,
 ): Promise<Hex> {
-  const encoded = preparePublicKeyForDeployment(rawPublicKey);
+  // NIST path (A-002): xofFactory = _xof = SHAKE-256 (H/tr);
+  //                     xofFactory2 = _xof2 = SHAKE-128 (ExpandA).
+  const encoded = preparePublicKeyForDeployment(
+    rawPublicKey,
+    shake256XofFactory,
+    shake128XofFactory,
+  );
 
   // Use the contract's bound simulate/write so the calls hit the same
   // network the verifier was deployed on. Fixtures open their own
