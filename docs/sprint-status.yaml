@@ -7,7 +7,7 @@ epics:
         slug: fixture-gen-cli
         title: Fixture-gen CLI + submodule compile path + KAT loader
         size: M
-        status: in-progress
+        status: done
         wave: 1
         dependencies: []
       - id: "2"
