@@ -325,7 +325,7 @@ Package files: no additions to `dependencies`; `devDependencies` unchanged.
 
 ## Tasks
 
-- [ ] **Task 1: Fork `signWithXof` into `ml-dsa-eth.core.ts` + supporting sub-helpers**
+- [x] **Task 1: Fork `signWithXof` into `ml-dsa-eth.core.ts` + supporting sub-helpers**
   - AC: AC-4-1 (primary — the signer fork is the byte-identity deliverable); AC-4-5 (rejection-counter instrumentation); AC-4-2 (signature-length guarantee — the 2420-byte layout comes from `_pack_sig`).
   - Files: `test/signers/ml-dsa-eth.core.ts` (extend — ADD `signWithXof`, `signWithXofInstrumented`, `sampleInBall`, `expandMaskPoly`, `decompose`/`highBits`/`lowBits`, `makeHint`, `bitPackZ`, `packHint`; ~200 LOC)
   - Dependencies: Story 3 complete (`keygenWithXof`, parameter constants, coders, `makeXofGet`, `rejNTTPoly`, `rejBoundedPoly` all at current hash `3df1999...`). No intra-Story-4 dependencies — this is the foundation for Tasks 2 + 3 + 4.

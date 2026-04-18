@@ -52,6 +52,14 @@ export const OMEGA = 80;
 export const BETA = TAU * ETA;
 /** Public-key digest length (H(pk, 64)). */
 export const TR_BYTES = 64;
+/** Challenge-hash length (ML-DSA-44 per FIPS 204 Table 2; `c_tilde_bytes`). */
+export const C_TILDE_BYTES = 32;
+/** Commitment-hash length (`_h` output width for mu / rhoPrime). */
+export const CRH_BYTES = 64;
+/** Signature length: 32 cTilde + 2304 z + 84 h (ML-DSA-44 per FIPS 204 Table 3). */
+export const SIGNATURE_BYTES = 2420;
+/** Secret-key length (ML-DSA-44): 32 + 32 + 64 + 96*L + 96*K + 416*K = 2560 B. */
+export const SECRET_KEY_BYTES = 2560;
 /** `256⁻¹ mod Q`, required by noble's NTT. */
 const F_INV = 8347681;
 /** FIPS 204 §7.5 BitRev_8 primitive root. */
@@ -305,4 +313,350 @@ export function keygenWithXof(zeta: Uint8Array, xofFactory: XofFactory): Keypair
   const secretKey = secretCoder.encode([rho, K_, tr, s1, s2, t0]);
 
   return { publicKey, secretKey };
+}
+
+// =========================================================================
+// Sign side (Story 4) — ported from `@noble/post-quantum/ml-dsa.js`
+// `internal.sign` body (pinned version 0.6.1). Same XOF-swap pattern as
+// keygen: every `shake{128,256}` call routed through the provided
+// {@link XofFactory}. Single-factory signature matches Story 3's
+// `keygenWithXof` convention (single factory on the ETH path; DD-1 LOCKED).
+// =========================================================================
+
+// === Additional coders (Z, W1, hint) + signature-composite coder ========
+
+const ZCoder = polyCoder(
+  GAMMA1 === 1 << 17 ? 18 : 20,
+  (i: number) => crystals.smod(GAMMA1 - i),
+);
+// W1 coefficients ∈ [0, (Q-1)/(2*GAMMA2)) → 6 bits/coeff for ML-DSA-44.
+const W1Coder = polyCoder(6);
+const W1Vec = vecCoder(W1Coder, K);
+
+/**
+ * Hint coder — port of `@noble/post-quantum/ml-dsa.js` lines 198-233.
+ * Packs `h` (K polynomials of 0/1 values with total Hamming weight ≤ OMEGA)
+ * into `OMEGA + K = 84` bytes: first `OMEGA` slots hold the nonzero indices
+ * per row concatenated in row-major order, last `K` slots hold cumulative
+ * counts at positions `OMEGA + i`.
+ */
+const hintCoder = {
+  bytesLen: OMEGA + K,
+  encode: (h: Int32Array[]): Uint8Array => {
+    const res = new Uint8Array(OMEGA + K);
+    let k = 0;
+    for (let i = 0; i < K; i++) {
+      const hi = h[i];
+      if (hi === undefined) throw new Error(`hintCoder.encode: undefined at row ${i}`);
+      for (let j = 0; j < N; j++) {
+        if (hi[j] !== 0) {
+          res[k++] = j;
+        }
+      }
+      res[OMEGA + i] = k;
+    }
+    return res;
+  },
+};
+
+const sigCoder = splitCoder("signature", C_TILDE_BYTES, vecCoder(ZCoder, L), hintCoder);
+
+// === Decompose / HighBits / LowBits / MakeHint (noble port) =============
+
+/**
+ * FIPS 204 Algorithm 36 Decompose. Splits `r` into `(r1, r0)` such that
+ * `r ≡ r1·(2γ₂) + r0 (mod Q)` with `|r0| ≤ γ₂`, folding the top bucket
+ * `q-1` back to `(0, r0 - 1)` per noble's ml-dsa.js:150-159.
+ */
+function decompose(r: number): { r0: number; r1: number } {
+  const rPlus = crystals.mod(r);
+  const r0 = crystals.smod(rPlus, 2 * GAMMA2) | 0;
+  if (rPlus - r0 === Q - 1) {
+    return { r1: 0 | 0, r0: (r0 - 1) | 0 };
+  }
+  const r1 = Math.floor((rPlus - r0) / (2 * GAMMA2)) | 0;
+  return { r1, r0 };
+}
+
+const highBits = (r: number): number => decompose(r).r1;
+const lowBits = (r: number): number => decompose(r).r0;
+
+/**
+ * Per-coefficient `MakeHint` used after `r0 += ct0` (the Section 5.1
+ * transformed convention; see noble's comment at ml-dsa.js:162-180).
+ * Not a drop-in for FIPS 204 Algorithm 39 on arbitrary `(z, r)` pairs.
+ */
+function makeHintCoef(z: number, r: number): number {
+  return z <= GAMMA2 || z > Q - GAMMA2 || (z === Q - GAMMA2 && r === 0)
+    ? 0
+    : 1;
+}
+
+/** FIPS 204 `\|·\|∞` ≥ B check on a polynomial after centering mod Q. */
+function polyChknorm(p: Int32Array, B: number): boolean {
+  for (let i = 0; i < N; i++) {
+    if (Math.abs(crystals.smod(p[i]!)) >= B) return true;
+  }
+  return false;
+}
+
+/** In-place `a ← a - b mod Q`. */
+function polySub(a: Int32Array, b: Int32Array): Int32Array {
+  for (let i = 0; i < a.length; i++) a[i] = crystals.mod(a[i]! - b[i]!);
+  return a;
+}
+
+// === SampleInBall (FIPS 204 Algorithm 29) — XOF-parameterized ===========
+
+/**
+ * Samples a polynomial `c ∈ Rq` with coefficients in `{-1, 0, 1}` and
+ * exactly `TAU` nonzero positions. Seeded by `cTilde`. Uses the first
+ * 8 squeezed bytes as the 64 sign bits and rejection-samples position
+ * indices from the remaining stream.
+ *
+ * Byte-compatible with noble's `SampleInBall(cTilde)` when `xofFactory`
+ * is a SHAKE-256 adapter; on the ETH path `xofFactory = keccakXofFactory`
+ * and the stream follows the Keccak-PRG schedule.
+ */
+function sampleInBall(cTilde: Uint8Array, xofFactory: XofFactory): Int32Array {
+  const pre = newPoly(N);
+  const reader = xofFactory(cTilde);
+  const BLOCK_LEN = 136; // SHAKE-256 rate, matches noble's blockLen for byte-identity.
+  let buf = reader.xof(BLOCK_LEN);
+  const masks = buf.slice(0, 8);
+  let pos = 8;
+  let maskPos = 0;
+  let maskBit = 0;
+  for (let i = N - TAU; i < N; i++) {
+    let b = i + 1;
+    while (b > i) {
+      b = buf[pos++]!;
+      if (pos < BLOCK_LEN) continue;
+      buf = reader.xof(BLOCK_LEN);
+      pos = 0;
+    }
+    pre[i] = pre[b]!;
+    pre[b] = 1 - (((masks[maskPos]! >> maskBit++) & 1) << 1);
+    if (maskBit >= 8) {
+      maskPos++;
+      maskBit = 0;
+    }
+  }
+  return pre;
+}
+
+// === signWithXofInstrumented / signWithXof ===============================
+
+/** Result shape for {@link signWithXofInstrumented} — production callers
+ *  use {@link signWithXof} instead; G2 KAT uses this variant to assert
+ *  AC-4-5 (rejection-counter instrumentation). */
+export interface SignResult {
+  signature: Uint8Array;
+  iterations: number;
+}
+
+/**
+ * XOF-parameterized ML-DSA-44 sign — instrumented variant. Returns the
+ * raw 2420-byte signature alongside the total number of rejection-loop
+ * iterations consumed (≥ 1; > 1 indicates at least one norm or hint
+ * rejection before acceptance).
+ *
+ * Pre-conditions:
+ * - `sk.length === SECRET_KEY_BYTES` (caller's responsibility — the
+ *   kat-internal / production surfaces raise `SignerInputError` before
+ *   reaching this function).
+ * - `rnd.length === 32` (hedged entropy or deterministic `.rsp` rnd).
+ * - `xofFactory` produces fresh stateful {@link XofReader}s with no
+ *   cached state (DD-10 LOCKED; AC-A-1 HIGH).
+ *
+ * Byte-identity guarantee: on the ETH path with `xofFactory =
+ * keccakXofFactory`, the output byte-matches Python reference
+ * `_sign_internal(sk, m_prime, rnd, external_mu=False,
+ * _xof=Keccak256PRNG, _xof2=Keccak256PRNG)` (single-factory collapse
+ * per DD-1) for the `m_prime = 0x00 || len(ctx) || ctx || msg`
+ * domain-separated message.
+ */
+export function signWithXofInstrumented(
+  sk: Uint8Array,
+  msg: Uint8Array,
+  rnd: Uint8Array,
+  ctx: Uint8Array,
+  xofFactory: XofFactory,
+): SignResult {
+  // Step 1 — unpack sk.
+  const decodedSk = secretCoder.decode(sk) as [
+    Uint8Array,
+    Uint8Array,
+    Uint8Array,
+    Int32Array[],
+    Int32Array[],
+    Int32Array[],
+  ];
+  const [rho, K_, tr, s1, s2, t0] = decodedSk;
+
+  // Step 2 — message preformatting: `m_prime = 0x00 || len(ctx) || ctx || msg`
+  // (FIPS 204 §5.2; Python `sign(..., ctx=b"")` at dilithium.py:445).
+  if (ctx.length > 255) {
+    throw new Error(`signWithXof: ctx length ${ctx.length} exceeds 255`);
+  }
+  const mPrime = new Uint8Array(2 + ctx.length + msg.length);
+  mPrime[0] = 0x00;
+  mPrime[1] = ctx.length;
+  mPrime.set(ctx, 2);
+  mPrime.set(msg, 2 + ctx.length);
+
+  // Step 3 — mu = xof(tr || m_prime, 64); rhoPrime = xof(K_ || rnd || mu, 64).
+  const trMPrime = new Uint8Array(tr.length + mPrime.length);
+  trMPrime.set(tr, 0);
+  trMPrime.set(mPrime, tr.length);
+  const mu = xofFactory(trMPrime).xof(CRH_BYTES);
+
+  if (rnd.length !== 32) {
+    throw new Error(`signWithXof: rnd must be 32 bytes, got ${rnd.length}`);
+  }
+  const kRndMu = new Uint8Array(K_.length + rnd.length + mu.length);
+  kRndMu.set(K_, 0);
+  kRndMu.set(rnd, K_.length);
+  kRndMu.set(mu, K_.length + rnd.length);
+  const rhoPrime = xofFactory(kRndMu).xof(CRH_BYTES);
+
+  // Step 4 — NTT-encode s1, s2, t0 (defensive copies — do NOT mutate
+  // the caller's decoded secret-key buffers).
+  const s1Hat = s1.map((p) => crystals.NTT.encode(new Int32Array(p)));
+  const s2Hat = s2.map((p) => crystals.NTT.encode(new Int32Array(p)));
+  const t0Hat = t0.map((p) => crystals.NTT.encode(new Int32Array(p)));
+
+  // Step 5 — rebuild A_hat matrix via ExpandA (same path as keygen).
+  const xofA = makeXofGet(rho, EXPAND_A_BLOCK, xofFactory);
+  const A: Int32Array[][] = [];
+  for (let i = 0; i < K; i++) {
+    const row: Int32Array[] = [];
+    for (let j = 0; j < L; j++) {
+      row.push(rejNTTPoly(xofA(j, i)));
+    }
+    A.push(row);
+  }
+
+  // Step 6 — rejection loop.
+  const alpha = 2 * GAMMA2;
+  // ExpandMask block length: `ZCoder.bytesLen` for ML-DSA-44 = 18*256/8 = 576.
+  const Z_BLOCK = ZCoder.bytesLen;
+
+  let kappa = 0;
+  let iterations = 0;
+
+  for (;;) {
+    iterations++;
+
+    // 6a — y = ExpandMask(rhoPrime, kappa). One polynomial per slot;
+    // each polynomial i seeded as `rhoPrime || u16_le(kappa)` with
+    // kappa incrementing by 1 per polynomial.
+    const y: Int32Array[] = [];
+    for (let i = 0; i < L; i++, kappa++) {
+      const seed = new Uint8Array(rhoPrime.length + 2);
+      seed.set(rhoPrime, 0);
+      seed[rhoPrime.length] = kappa & 0xff;
+      seed[rhoPrime.length + 1] = (kappa >> 8) & 0xff;
+      const block = xofFactory(seed).xof(Z_BLOCK);
+      y.push(ZCoder.decode(block));
+    }
+
+    // 6b — y_hat = NTT(y); w = NTT⁻¹(A · y_hat).
+    const yHat = y.map((p) => crystals.NTT.encode(new Int32Array(p)));
+    const w: Int32Array[] = [];
+    for (let i = 0; i < K; i++) {
+      const wi = newPoly(N);
+      for (let j = 0; j < L; j++) {
+        polyAdd(wi, multiplyNTTs(A[i]![j]!, yHat[j]!));
+      }
+      crystals.NTT.decode(wi);
+      w.push(wi);
+    }
+
+    // 6c — w1 = HighBits(w, α); c_tilde = xof(mu || W1Vec.encode(w1), 32).
+    const w1: Int32Array[] = w.map((wi) => {
+      const r = newPoly(N);
+      for (let k = 0; k < N; k++) r[k] = highBits(wi[k]!);
+      return r;
+    });
+    const w1Bytes = W1Vec.encode(w1);
+    const muW1 = new Uint8Array(mu.length + w1Bytes.length);
+    muW1.set(mu, 0);
+    muW1.set(w1Bytes, mu.length);
+    const cTilde = xofFactory(muW1).xof(C_TILDE_BYTES);
+
+    // 6d — c = SampleInBall(cTilde); c_hat = NTT(c).
+    const c = sampleInBall(cTilde, xofFactory);
+    const cHat = crystals.NTT.encode(new Int32Array(c));
+
+    // 6e — z = y + ⟨⟨c·s1⟩⟩; norm check ‖z‖∞ < γ₁ − β. Early-abort on fail.
+    const cs1 = s1Hat.map((p) => multiplyNTTs(p, cHat));
+    let rejected = false;
+    for (let i = 0; i < L; i++) {
+      crystals.NTT.decode(cs1[i]!);
+      polyAdd(cs1[i]!, y[i]!);
+      if (polyChknorm(cs1[i]!, GAMMA1 - BETA)) {
+        rejected = true;
+        break;
+      }
+    }
+    if (rejected) continue;
+    const z = cs1; // cs1 is now z (noble comment ml-dsa.js:499).
+
+    // 6f — for each row i: compute r0 = LowBits(w - c·s2), norm check;
+    // compute c·t0, norm check; compute hint for that row.
+    const h: Int32Array[] = [];
+    let hintCnt = 0;
+    for (let i = 0; i < K; i++) {
+      const cs2 = multiplyNTTs(s2Hat[i]!, cHat);
+      crystals.NTT.decode(cs2);
+      const r0 = newPoly(N);
+      for (let k = 0; k < N; k++) {
+        r0[k] = lowBits(crystals.mod(w[i]![k]! - cs2[k]!));
+      }
+      if (polyChknorm(r0, GAMMA2 - BETA)) {
+        rejected = true;
+        break;
+      }
+      const ct0 = multiplyNTTs(t0Hat[i]!, cHat);
+      crystals.NTT.decode(ct0);
+      if (polyChknorm(ct0, GAMMA2)) {
+        rejected = true;
+        break;
+      }
+      polyAdd(r0, ct0);
+      // MakeHint(r0, w1[i]) per-coefficient → row hint polynomial.
+      const hi = newPoly(N);
+      let rowCnt = 0;
+      for (let k = 0; k < N; k++) {
+        const hk = makeHintCoef(r0[k]!, w1[i]![k]!);
+        hi[k] = hk;
+        rowCnt += hk;
+      }
+      h.push(hi);
+      hintCnt += rowCnt;
+    }
+    if (rejected) continue;
+    if (hintCnt > OMEGA) continue;
+
+    // 6g — pack signature: σ = cTilde ‖ bitPackZ(z) ‖ packHint(h).
+    const signature = sigCoder.encode([cTilde, z, h]);
+    return { signature, iterations };
+  }
+}
+
+/**
+ * XOF-parameterized ML-DSA-44 sign — thin wrapper around
+ * {@link signWithXofInstrumented} that discards the iteration counter.
+ * Production callers (`ml-dsa-eth.ts#signUserOp`) use this variant;
+ * the G2 KAT test uses the instrumented variant to assert AC-4-5.
+ */
+export function signWithXof(
+  sk: Uint8Array,
+  msg: Uint8Array,
+  rnd: Uint8Array,
+  ctx: Uint8Array,
+  xofFactory: XofFactory,
+): Uint8Array {
+  return signWithXofInstrumented(sk, msg, rnd, ctx, xofFactory).signature;
 }
