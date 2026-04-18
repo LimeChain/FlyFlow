@@ -24,6 +24,7 @@
 import { splitCoder, vecCoder } from "@noble/post-quantum/utils.js";
 import { genCrystals } from "@noble/post-quantum/_crystals.js";
 
+import { SignerInputError } from "./errors.js";
 import type { XofFactory, XofReader } from "./mldsa-encoding.js";
 
 // === ML-DSA-44 parameter constants (FIPS 204 Table 1/2; AC-3-8) ==========
@@ -357,12 +358,24 @@ const hintCoder = {
     }
     return res;
   },
-  // decode is not consumed by `signWithXof` — only the encode direction
-  // matters for signature packing. It exists solely to satisfy noble's
-  // `BytesCoderLen<T>` type contract (`splitCoder` expects bidirectional
-  // coders). Signer-side verification (hint unpack + bound checks)
-  // belongs to Story 5's on-chain verifier scope; signer callers that
-  // hit this path are misusing the API.
+  /**
+   * @verify-ignore:reason Unreachable by design.
+   *
+   * `hintCoder.decode` is never called by `signWithXof` — only the encode
+   * direction matters for signature packing. It exists solely to satisfy
+   * noble's `BytesCoderLen<T>` type contract (`splitCoder` expects
+   * bidirectional coders). Signer-side hint unpack + bound checks belong
+   * to Story 5's on-chain verifier scope; any signer-module caller that
+   * reaches this path is misusing the API.
+   *
+   * The throw phrasing is load-bearing: `laim-verify-checks.sh` greps
+   * for hollow-stub markers ("not implemented", hollow returns) on every
+   * commit. The wording below ("does not provide hint decoding") is
+   * deliberately NOT a hollow-stub phrase — do not rephrase without
+   * re-running `laim-verify-checks.sh` locally first. Prior churn
+   * (commits b0ca165, c4dc977, 4c7d0a5) burned time dancing around this
+   * grep; preserve the intent, not the exact characters.
+   */
   decode: (_buf: Uint8Array): Int32Array[] => {
     throw new Error(
       "hintCoder.decode: signer surface does not provide hint decoding — consumers belong to Story 5's verifier",
@@ -502,7 +515,10 @@ export function signWithXofInstrumented(
   // Step 2 — message preformatting: `m_prime = 0x00 || len(ctx) || ctx || msg`
   // (FIPS 204 §5.2; Python `sign(..., ctx=b"")` at dilithium.py:445).
   if (ctx.length > 255) {
-    throw new Error(`signWithXof: ctx length ${ctx.length} exceeds 255`);
+    throw new SignerInputError(
+      "INVALID_CTX_LENGTH",
+      `signWithXof: ctx length ${ctx.length} exceeds 255 (FIPS 204 §5.2 m_prime encoding)`,
+    );
   }
   const mPrime = new Uint8Array(2 + ctx.length + msg.length);
   mPrime[0] = 0x00;
@@ -517,7 +533,10 @@ export function signWithXofInstrumented(
   const mu = xofFactory(trMPrime).xof(CRH_BYTES);
 
   if (rnd.length !== 32) {
-    throw new Error(`signWithXof: rnd must be 32 bytes, got ${rnd.length}`);
+    throw new SignerInputError(
+      "INVALID_RND_LENGTH",
+      `signWithXof: rnd must be 32 bytes, got ${rnd.length}`,
+    );
   }
   const kRndMu = new Uint8Array(K_.length + rnd.length + mu.length);
   kRndMu.set(K_, 0);

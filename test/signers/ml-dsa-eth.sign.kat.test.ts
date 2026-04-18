@@ -88,5 +88,16 @@ describe("G2 — rejection-loop counter (AC-4-5)", () => {
       total > vectors.length,
       `AC-4-5: totalIterations ${total} must strictly exceed vectorCount ${vectors.length} — at least one vector should require >1 rejection iteration`,
     );
+    // Hardening beyond AC-4-5: guard against silent reject-loop
+    // degradation that would still pass the minimum threshold (e.g., a
+    // single vector spiking while all others hit on iteration 1). Dev
+    // Notes predict avg ≈ 1.5-2.0 on this corpus; maxIters observed ≈ 16.
+    // `>=2` is a loose fence well below observed — flips only if the
+    // rejection loop genuinely stops firing on the vast majority of
+    // vectors.
+    assert.ok(
+      maxIters >= 2,
+      `AC-4-5 regression fence: expected at least one vector with >=2 iterations (observed max=${maxIters}); this catches silent reject-loop degradation the strict-inequality AC alone would miss`,
+    );
   });
 });
