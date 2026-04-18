@@ -329,7 +329,7 @@ Package files: no additions to `dependencies`; `devDependencies` unchanged.
        - **AC-3-6 @delta-from-ml-dsa assertion**: optional — grep-assert that `ml-dsa-eth.ts` + `ml-dsa-eth.kat-internal.ts` source contains the literal `@delta-from-ml-dsa` tag (read file, `.includes("@delta-from-ml-dsa")`). Cheap and catches header-comment drift.
     5. **Log A-003 amendment** in `docs/amendments.md`: "AC-3-7 ESLint substitution — runtime grep assertion in `test/signers/ml-dsa-eth.test.ts` until project-wide ESLint is adopted. Rule 2 moderate deviation: project currently has no `.eslintrc*` / `eslint.config.*`; bootstrapping ESLint for one rule exceeds Story 3's scope."
 
-- [ ] **Task 4: G1 KAT byte-identity test**
+- [x] **Task 4: G1 KAT byte-identity test**
   - AC: AC-3-1 (G1 keygen byte-identity — primary and sole)
   - Files: `test/signers/ml-dsa-eth.keygen.kat.test.ts` (new; ~25 LOC)
   - Dependencies: Tasks 1-3 (needs the forked keygen, the kat-internal surface, and the ML-DSA-ETH KAT fixtures from Story 1)
