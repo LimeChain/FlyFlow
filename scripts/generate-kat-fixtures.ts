@@ -37,8 +37,11 @@
  *      `sig = sm[:-mlen]` (strip appended message, per NIST KAT convention).
  *   3. Spawn ONE `python3 -c "..."` batch (architecture UC-2 requires a
  *      single spawn). The Python program:
- *        - replays `AES256_CTR_DRBG(drbgSeed).random_bytes(64)` per record
- *          to recover `(ζ, rnd)`;
+ *        - replays `AES256_CTR_DRBG(drbgSeed)` per record with TWO
+ *          separate `random_bytes(32)` calls to recover `(ζ, rnd)` —
+ *          per A-005 (state-advanced CTR-DRBG; not bytes[32:64] of a
+ *          single `random_bytes(64)` expansion, which Story 1 originally
+ *          documented);
  *        - calls `Dilithium2.pk_for_eth(pk, _xof=Keccak256PRNG,
  *          _xof2=Keccak256PRNG)` and ABI-encodes the returned
  *          `(A_hat, tr, t1_new)` via `eth_abi.encode(['bytes','bytes',
@@ -645,9 +648,16 @@ def encode_vector_bytes(t1):
 
 def process_vector(rec):
     drbg = AES256_CTR_DRBG(bytes.fromhex(rec["seed"]))
-    bs = drbg.random_bytes(64)
-    zeta = bs[0:32]
-    rnd = bs[32:64]
+    # A-005: two SEPARATE 32-byte calls, not one 64-byte call.
+    # AES256_CTR_DRBG.random_bytes runs __ctr_drbg_update at the END of
+    # each call (Section 10.2.1.5.1 of SP 800-90A), so bytes[32:64] of a
+    # single random_bytes(64) are NOT equal to the second random_bytes(32)
+    # output. Dilithium.sign() consumes rnd via a fresh random_bytes(32)
+    # call AFTER keygen's random_bytes(32); the ETH KAT signatures in
+    # PQCsignKAT_Dilithium2_ETH.rsp were produced with this
+    # state-advanced rnd. Replicating the KAT flow requires two calls.
+    zeta = drbg.random_bytes(32)
+    rnd = drbg.random_bytes(32)
     pk_bytes = bytes.fromhex(rec["pk"])
     A_hat, tr, t1_new = Dilithium2.pk_for_eth(
         pk_bytes, _xof=Keccak256PRNG, _xof2=Keccak256PRNG
@@ -1010,7 +1020,7 @@ function main(): number {
     source: {
       rspFile: "ETHDILITHIUM/pythonref/assets/PQCsignKAT_Dilithium2_ETH.rsp",
       drbgDerivation:
-        "AES256_CTR_DRBG(drbgSeed).random_bytes(64) → ζ=[0:32], rnd=[32:64]",
+        "AES256_CTR_DRBG(drbgSeed): ζ=first random_bytes(32) call, rnd=second random_bytes(32) call (A-005 — state-advanced; not bytes[32:64] of a single 64-byte call)",
       ctx: "0x",
     },
     vectors: katVectors,
