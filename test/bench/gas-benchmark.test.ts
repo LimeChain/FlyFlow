@@ -422,14 +422,19 @@ describe("Story 5-1 — Gas benchmark", () => {
         `benchmark exceeded 5min wall-clock budget: ${elapsedMs.toFixed(0)}ms`,
       );
 
-      await writeFile(
-        "test/bench/gas-data.json",
-        JSON.stringify(
-          results,
-          (_k, v) => (typeof v === "bigint" ? v.toString() : v),
-          2,
-        ),
-      );
+      // Snapshot refresh is opt-in: routine test runs leave the committed
+      // gas-data.json untouched; `npm run bench:update` (UPDATE_BENCH=1)
+      // rewrites it when the operator explicitly wants a new baseline.
+      if (process.env.UPDATE_BENCH) {
+        await writeFile(
+          "test/bench/gas-data.json",
+          JSON.stringify(
+            results,
+            (_k, v) => (typeof v === "bigint" ? v.toString() : v),
+            2,
+          ),
+        );
+      }
     },
   );
 
