@@ -38,6 +38,6 @@ epics:
         slug: integration-benchmark
         title: pk-transform + MlDsaEthAccount + G3 + G4 + benchmark + rename
         size: L
-        status: backlog
+        status: done
         wave: 5
         dependencies: ["1", "2", "3", "4"]

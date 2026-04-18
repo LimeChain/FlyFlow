@@ -2,7 +2,7 @@
 story_id: "5"
 title: "pk-transform + MlDsaEthAccount + G3 + G4 + benchmark + rename"
 size: "L"
-status: "ready-for-dev"
+status: "done"
 wave: 5
 feature: mldsa-eth
 created: 2026-04-18
