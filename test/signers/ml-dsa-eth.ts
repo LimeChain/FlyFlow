@@ -1,5 +1,5 @@
 /**
- * ML-DSA-ETH production signer surface (Story 3 G1; Story 4 will add sign).
+ * ML-DSA-ETH production signer surface.
  *
  * Variant of NIST ML-DSA-44 that swaps every SHAKE XOF for the Keccak-PRG
  * primitive (DD-1; `docs/architecture.md` §"Design Rationale"). Consumers:
@@ -49,8 +49,16 @@
  *    bytes h)` at its entry point (Story 5 scope).
  */
 
+import { bytesToHex, hexToBytes } from "viem";
+
+import type { PackedUserOperation, UnsignedUserOp } from "./index.js";
+import {
+  type Keypair,
+  keygenWithXof,
+  signWithXof,
+} from "./ml-dsa-eth.core.js";
 import { keccakXofFactory } from "./mldsa-encoding.js";
-import { type Keypair, keygenWithXof } from "./ml-dsa-eth.core.js";
+import { computeUserOpHash } from "./userOpHash.js";
 
 /**
  * Generate a fresh ML-DSA-ETH keypair. Sources a 32-byte `zeta` from
@@ -68,4 +76,44 @@ export function keygen(): Keypair {
   const zeta = new Uint8Array(32);
   globalThis.crypto.getRandomValues(zeta);
   return keygenWithXof(zeta, keccakXofFactory);
+}
+
+/**
+ * Sign an ERC-4337 v0.7 UserOperation with an ML-DSA-ETH secret key.
+ *
+ * Computes `userOpHash` via the shared helper, sources a fresh 32-byte
+ * `rnd` from `crypto.getRandomValues` (AC-4-6 hedge — two back-to-back
+ * calls with identical inputs return different signatures), and routes
+ * through `signWithXof` with empty `ctx` + `keccakXofFactory` per the
+ * DD-1 single-factory convention for the ETH path.
+ *
+ * Mirrors `test/signers/ml-dsa.ts#signUserOp` shape; the byte divergence
+ * from the NIST path is in the XOF primitive + explicit `rnd` routing,
+ * not in the public signature or the returned `PackedUserOperation`
+ * layout.
+ *
+ * @returns `PackedUserOperation` with `.signature` as a `0x`-prefixed hex
+ *   string of exactly 4842 characters (2 prefix + 2420 bytes × 2 hex
+ *   chars = 32 cTilde ‖ 2304 z ‖ 84 h).
+ */
+export async function signUserOp(
+  secretKey: Uint8Array,
+  userOp: UnsignedUserOp,
+  entryPointAddress: string,
+  chainId: bigint,
+): Promise<PackedUserOperation> {
+  const userOpHash = computeUserOpHash(userOp, entryPointAddress, chainId);
+  const rnd = new Uint8Array(32);
+  globalThis.crypto.getRandomValues(rnd);
+  const signature = signWithXof(
+    secretKey,
+    hexToBytes(userOpHash),
+    rnd,
+    new Uint8Array(0),
+    keccakXofFactory,
+  );
+  return {
+    ...userOp,
+    signature: bytesToHex(signature),
+  };
 }
