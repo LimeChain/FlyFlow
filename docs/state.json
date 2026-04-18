@@ -131,7 +131,7 @@
     "quality": {
       "interfaceAudits": 3,
       "interfaceMismatches": 0,
-      "amendments": 1,
+      "amendments": 3,
       "concerns": 3,
       "concernsBySeverity": {
         "critical": 0,

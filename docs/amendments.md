@@ -81,3 +81,138 @@ Architecture DD-7 was drafted referencing the NIST spec's `tr` (32 B via `H(pk)`
 - Task 3's CLI uses `abi.encode(bytes, bytes, bytes)` — correct per the sources above. **No change to Task 3 implementation.**
 - Story 1's inlined DD-7 description in `docs/stories/1-fixture-gen-cli.md` (Dev Notes §"DD-7 LOCKED") is updated to reference this amendment.
 - Downstream story files (Stories 3, 5) will pick up the corrected schema via the story-creator-agent reading both architecture.md AND this amendments.md — the agent is contracted to use amended values where they conflict.
+
+---
+
+## A-002: `preparePublicKeyForDeployment` takes TWO XOF factories, not one
+
+- **Story:** 3 (XOF refactor + keygen port + G1 KAT + NIST regression)
+- **Task:** 2 (`mldsa-encoding.ts` XOF-factory refactor — landing signature)
+- **Date:** 2026-04-18
+- **Classification:** Rule 3 (Significant — architecture interface correction)
+- **Affects:** DD-10 LOCKED (architecture §"Design Rationale"); architecture §"Library Public API Surface" §`test/signers/mldsa-encoding.ts (refactored)`
+
+### Original (architecture.md §"Library Public API Surface")
+
+```ts
+export interface XofReader {
+  readonly id: "shake128" | "shake256" | "keccak-prg";
+  xof(length: number): Uint8Array;
+}
+export type XofFactory = (seed: Uint8Array) => XofReader;
+export function preparePublicKeyForDeployment(rawPk: Uint8Array, xofFactory: XofFactory): Uint8Array;
+```
+
+Single `xofFactory` parameter.
+
+### Actual (verified against existing TS code + Python ref)
+
+```ts
+export interface XofReader {
+  readonly id: "shake128" | "shake256" | "keccak-prg";
+  xof(length: number): Uint8Array;
+}
+export type XofFactory = (seed: Uint8Array) => XofReader;
+export function preparePublicKeyForDeployment(
+  rawPk: Uint8Array,
+  xofFactory: XofFactory,    // equivalent to Python `_xof`  (SHAKE-256 in NIST, Keccak-PRG in ETH)
+  xofFactory2: XofFactory,   // equivalent to Python `_xof2` (SHAKE-128 in NIST, Keccak-PRG in ETH)
+): Uint8Array;  // or Hex — see Story 3 Dev Notes re: AC-D-1 existing-caller compatibility
+```
+
+Two factories. NIST callers pass `(shake256XofFactory, shake128XofFactory)`. ETH callers pass `(keccakXofFactory, keccakXofFactory)` — same factory twice because DD-1 collapses all SHAKE widths to the Keccak-PRG primitive.
+
+### Evidence
+
+1. **Existing TypeScript code** — `test/signers/mldsa-encoding.ts`:
+   - Line 45: `rejectionSamplePoly` inside `recoverAhat` (ExpandA / A_hat recovery) uses `shake128.create()`
+   - Line 103: `tr = shake256(publicKey, { dkLen: TR_BYTES })` uses SHAKE-256
+   - Both call-sites are inside `preparePublicKeyForDeployment`. They CANNOT be served by a single `XofFactory` parameter without additional branching (e.g., dispatching on `reader.id`), which would push variant-aware logic from the adapters into the encoding module — violating the DD-10 isolation goal.
+
+2. **Python reference** — `ETHDILITHIUM/pythonref/dilithium_py/dilithium/dilithium.py:235`:
+   ```python
+   def _keygen_internal(self, zeta: bytes, _xof=shake256, _xof2=shake128, zk=False) -> tuple[bytes, bytes]:
+       ...
+       tr = self._h(pk, 64, _xof=_xof)                  # SHAKE-256
+       A_hat = self._expand_matrix_from_seed(rho, _xof=_xof2, zk=zk)  # SHAKE-128
+   ```
+   Two named arguments: `_xof` (default `shake256`) and `_xof2` (default `shake128`). The ETH variant `pk_for_eth` passes both as `Keccak256PRNG`:
+   ```python
+   def pk_for_eth(self, pk, _xof=Keccak256PRNG, _xof2=Keccak256PRNG, zk=False):
+       ...
+       tr = self._h(pk, 64, _xof=_xof)
+       A_hat = self._expand_matrix_from_seed(rho, _xof=_xof2, zk=zk)
+   ```
+
+3. **Architecture text acknowledges two adapters** (§"Library Public API Surface"):
+   > "NIST adapters: `shake128XofFactory` / `shake256XofFactory` wrap `shake{128,256}.create().update(seed)` with `id: "shake{128,256}"`."
+   — but the function signature only takes ONE `xofFactory` parameter. The two adapters have nowhere to go. This is the drafting bug.
+
+### Impact
+
+- **Story 3 Task 2** (this task's refactor scope): `preparePublicKeyForDeployment` signature is `(rawPk, xofFactory, xofFactory2)`. NIST path migrates existing call-sites to `(pk, shake256XofFactory, shake128XofFactory)`. ETH path calls `(pk, keccakXofFactory, keccakXofFactory)`.
+- **Story 5** (G3 pk-transform KAT, `MlDsaEthAccount` integration): consumes the amended two-factory signature. No further change beyond using the corrected call pattern.
+- **XofReader.id discriminant** — still present; carries the debug-message benefit per M-3. Not affected by this amendment.
+- **Factory-vs-one-shot rationale** (DD-10 main decision) — unchanged; the two-factory correction is about parameter count, not the factory pattern itself.
+
+### Rationale
+
+Architecture phase read the Python `pk_for_eth` signature quickly (which takes `_xof=Keccak256PRNG, _xof2=Keccak256PRNG` — trivially identical in ETH) and missed that the underlying algorithm has two semantically-distinct XOF roles that matter for NIST. The omission is only visible when reading the NIST-variant `_keygen_internal` where `_xof=shake256, _xof2=shake128` — architecture referenced the ETH path more heavily during drafting.
+
+Caught during Story 3 Task 2 planning; corrected before landing the refactor. Zero code written against the wrong signature (Story 1 and 2 do not touch `preparePublicKeyForDeployment`).
+
+### Resolution
+
+- Story 3 Task 2 implements the two-factory signature per the amended shape.
+- Story file `docs/stories/3-xof-refactor-keygen.md` §"Dev Notes" + §"Verified Interfaces" updated to reference A-002 explicitly.
+- Downstream stories (Story 5) will pick up the corrected signature via the story-creator-agent reading both architecture.md AND this amendments.md.
+
+---
+
+## A-003: AC-3-7 enforcement via grep-at-test-time (ESLint not configured in project)
+
+- **Story:** 3 (XOF refactor + keygen port + G1 KAT + NIST regression)
+- **Task:** 3 (Noble keygen fork + kat-internal boundary)
+- **Date:** 2026-04-18
+- **Classification:** Rule 2 (Moderate — mechanism substitution; logged as amendment for discoverability at Story 3's Gate 5)
+- **Affects:** AC-3-7 in `docs/plan.md` §"Story 3" (the ESLint enforcement clause)
+
+### Original (plan.md §Story 3 AC-3-7)
+
+> **AC-3-7** (ESLint `no-restricted-imports` — M-1): Given the `.eslintrc` rule, when `test/signers/index.ts` or any file under `test/bench/**` imports from `ml-dsa-eth.kat-internal.ts`, then lint fails with a message pointing to the kat-internal boundary rationale.
+
+### Actual
+
+Project has no ESLint configuration (no `.eslintrc.*`, no `eslint.config.*`, no `lint` field in `state.json`'s tooling block). Introducing ESLint purely to gate one import rule would add significant devDependency surface + config maintenance + CI integration for one AC. Substituted with a runtime-grep assertion that fires at test time:
+
+```ts
+// test/signers/ml-dsa-eth.kat-boundary.test.ts (Task 3 of Story 3)
+test("M-1 kat-internal boundary — no production code imports from ml-dsa-eth.kat-internal", () => {
+  const boundaryViolations = grepForKatInternalImports({
+    scanPaths: ["test/signers/index.ts", "test/bench/**/*.ts"],
+    pattern: /from\s+['"].*\/ml-dsa-eth\.kat-internal(?:\.js)?['"]/,
+  });
+  assert.equal(boundaryViolations.length, 0,
+    `kat-internal imports found outside permitted scope:\n${boundaryViolations.join("\n")}`);
+});
+```
+
+Runs on every `npx hardhat test`. Fails the suite on any violation. Semantically equivalent to ESLint enforcement for this one rule.
+
+### Rationale
+
+- ESLint not currently in project — introducing it is out of scope for Story 3 (AC-3-7 is one small enforcement; not a lint-framework decision).
+- Grep-at-test-time fires in CI (every test run) with the same feedback latency ESLint would give.
+- Future story can still add ESLint if a broader lint policy emerges; the grep-test is cheap to remove once ESLint lands.
+
+### Impact
+
+- AC-3-7 satisfied by the grep test; plan.md text ("Given the `.eslintrc` rule") is now technically inaccurate — use amended text at Story 3 Gate 5.
+- C-001 (test-only env vars should be runtime-gated) — a sibling concern filed against Story 1 — already recommends similar grep-at-test-time patterns for security overrides. A-003 and C-001 share lineage: both recognize that lint-based enforcement is premature absent a project-wide lint policy.
+- Gate 5 criterion for AC-3-7 verifies the grep test runs and returns zero violations on a clean tree.
+
+### Resolution
+
+- Story 3 Task 3 implements the grep test instead of ESLint configuration.
+- Story file's Dev Notes reference A-003.
+- If ESLint is adopted in a future story, A-003 becomes moot — remove the runtime-grep test and replace with the proper ESLint rule.
