@@ -38,7 +38,15 @@
   "storiesDone": 2,
   "storiesTotal": 5,
   "changeStories": [],
-  "currentStory": null,
+  "currentStory": {
+    "storyId": "3",
+    "slug": "xof-refactor-keygen",
+    "title": "XOF refactor + keygen port + G1 KAT + NIST regression",
+    "size": "M",
+    "wave": 3,
+    "status": "in-progress",
+    "startedAt": "2026-04-18T12:00:00.000Z"
+  },
   "tooling": {
     "format": null,
     "lint": null,
@@ -96,7 +104,7 @@
       "avgTasksPerStory": 0,
       "sizeDistribution": {
         "S": 0,
-        "M": 2,
+        "M": 3,
         "L": 0
       }
     },
@@ -121,7 +129,7 @@
       "findingsDeferred": 3
     },
     "quality": {
-      "interfaceAudits": 2,
+      "interfaceAudits": 3,
       "interfaceMismatches": 0,
       "amendments": 1,
       "concerns": 3,

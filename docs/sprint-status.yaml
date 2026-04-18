@@ -24,7 +24,7 @@ epics:
         slug: xof-refactor-keygen
         title: XOF refactor + keygen port + G1 KAT + NIST regression
         size: M
-        status: backlog
+        status: in-progress
         wave: 3
         dependencies: ["1", "2"]
       - id: "4"
