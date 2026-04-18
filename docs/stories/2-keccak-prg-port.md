@@ -205,7 +205,7 @@ Modified files: none expected. `hardhat.config.ts` already compiles `ETHDILITHIU
 
 ## Tasks
 
-- [ ] **Task 1: Port `keccak-prg.ts` + `PrgLifecycleError` + PRG unit tests**
+- [x] **Task 1: Port `keccak-prg.ts` + `PrgLifecycleError` + PRG unit tests**
   - AC: AC-2-4 (primary), AC-2-5 (primary); foundational for AC-2-1/2/3/6 (they all construct instances via `createKeccakPrg`)
   - Files: `test/signers/keccak-prg.ts` (new; ~80 LOC), `test/signers/keccak-prg.test.ts` (new; ~20 LOC)
   - Dependencies: none (first task — consumes only Story 1's already-landed code + viem `keccak256`)
