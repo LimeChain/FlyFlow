@@ -225,7 +225,7 @@ Modified files: none expected. `hardhat.config.ts` already compiles `ETHDILITHIU
     - Note: the absorb-concatenation invariant is also worth a JS-internal self-consistency check (do both paths in one `it()` block: two multi-inject instances, one via `inject(a); inject(b)` and one via `inject(concat(a,b))`, flip both, extract 64 B from each, assert equal). That is zero-cost and catches implementation bugs the fixture alone would miss if both paths shared a bug. Recommended but not AC-mandated.
     - Use `assertBytesEqual` helper if it exists at test-runtime (Story 1 didn't introduce it; likely Story 3 does per architecture §"Shared helpers"). If absent, use `assert.equal(bytesToHex(actual), expected)` with `hex` or `Uint8Array` comparison — the test is temporary-acceptable without the helper.
 
-- [ ] **Task 3: G0-prime Solidity cross-check — `keccak-prg.solidity.test.ts` + `KeccakPrngHarness.sol`**
+- [x] **Task 3: G0-prime Solidity cross-check — `keccak-prg.solidity.test.ts` + `KeccakPrngHarness.sol`**
   - AC: AC-2-6 (primary)
   - Files: `test/signers/keccak-prg.solidity.test.ts` (new; ~30 LOC), `contracts/test-harness/KeccakPrngHarness.sol` (new; ~20 LOC)
   - Dependencies: Task 1 (needs JS `createKeccakPrg` for the equivalence assertion)
