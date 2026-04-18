@@ -1,10 +1,24 @@
 /**
  * Story 5-2 — Gas comparison report generator.
  *
- * Reads `test/bench/gas-data.json` (produced by Story 5-1) and writes
- * `docs/gas-report.md`: one row per scheme with absolute gas, calldata
- * vs execution split, ECDSA-baseline overhead %, and per-scheme
- * variance (C-012 transparency).
+ * Reads `test/bench/gas-data.json` (produced by Story 5-1, extended to
+ * 4 schemes by Story 5 Task 6) and writes `docs/gas-report.md`: one row
+ * per scheme with absolute gas, calldata vs execution split, ECDSA-
+ * baseline overhead %, and per-scheme variance (C-012 transparency).
+ *
+ * AC-5-7 strict determinism (Story 5 Task 6): the `_Generated:` header
+ * line is sourced from `gas-data.json.generatedAt` (written by the
+ * bench test at `UPDATE_BENCH=1` invocation time), NOT from
+ * `new Date().toISOString()` at render time. Two consecutive
+ * `npm run report` runs on an unchanged `gas-data.json` produce a
+ * byte-identical `docs/gas-report.md` — `git diff` is empty.
+ *
+ * Snapshot schema (Story 5 Task 6 one-time bump): the file now carries
+ * `{ generatedAt: string, results: RawBenchResult[] }` instead of a
+ * bare `RawBenchResult[]`. The bump is logged inline as a Rule 1
+ * deviation — the loader change is committed atomically with the
+ * bench-test write change, so no downstream consumer ever sees the
+ * old shape.
  *
  * Run via `npm run report` (Node 24 native TS strip — no transpiler).
  * Paths resolve via `import.meta.url` so `node scripts/generate-report.ts`
@@ -13,7 +27,7 @@
 
 import { readFile, writeFile } from "node:fs/promises";
 
-type Scheme = "ecdsa" | "falcon" | "mldsa";
+type Scheme = "ecdsa" | "falcon" | "mldsa" | "mldsa-eth";
 
 export type BenchResult =
   | {
@@ -41,7 +55,25 @@ type RawOk = {
 type RawFailed = { scheme: Scheme; status: "failed"; reason: string };
 type RawBenchResult = RawOk | RawFailed;
 
-const SCHEMES: readonly Scheme[] = ["ecdsa", "falcon", "mldsa"] as const;
+const SCHEMES: readonly Scheme[] = [
+  "ecdsa",
+  "falcon",
+  "mldsa",
+  "mldsa-eth",
+] as const;
+
+/**
+ * Top-level snapshot shape written by `test/bench/gas-benchmark.test.ts`
+ * when invoked with `UPDATE_BENCH=1` (Story 5 Task 6 schema bump). The
+ * `generatedAt` field anchors AC-5-7 strict determinism — the report
+ * generator reads this string verbatim into the `_Generated:` header so
+ * two consecutive render runs on an unchanged snapshot produce a
+ * byte-identical report.
+ */
+type GasSnapshot = {
+  generatedAt: string;
+  results: RawBenchResult[];
+};
 
 export function hydrate(raw: RawBenchResult): BenchResult {
   if (raw.status === "failed") return raw;
@@ -96,10 +128,12 @@ function truncReason(reason: string, max = 60): string {
 
 export function renderReport(
   results: BenchResult[],
-  generatedAt: string = new Date().toISOString(),
+  generatedAt: string,
 ): string {
-  if (results.length !== 3) {
-    throw new Error(`expected 3 BenchResult records, got ${results.length}`);
+  if (results.length !== SCHEMES.length) {
+    throw new Error(
+      `expected ${SCHEMES.length} BenchResult records, got ${results.length}`,
+    );
   }
   const seen = new Set(results.map((r) => r.scheme));
   for (const s of SCHEMES) {
@@ -202,10 +236,22 @@ async function main(): Promise<void> {
   const outputUrl = new URL("../docs/gas-report.md", import.meta.url);
 
   const text = await readFile(inputUrl, { encoding: "utf8" });
-  const raw = JSON.parse(text) as RawBenchResult[];
-  const results = raw.map(hydrate);
+  const snapshot = JSON.parse(text) as GasSnapshot;
+  if (
+    typeof snapshot.generatedAt !== "string" ||
+    !Array.isArray(snapshot.results)
+  ) {
+    throw new Error(
+      "gas-data.json schema: expected { generatedAt: string, results: [...] } (Story 5 Task 6 bump)",
+    );
+  }
+  const results = snapshot.results.map(hydrate);
 
-  const md = renderReport(results);
+  // AC-5-7 strict determinism: timestamp flows from the snapshot, not
+  // from `new Date()` at render time. Two consecutive `npm run report`
+  // invocations against an unchanged snapshot produce a byte-identical
+  // report.
+  const md = renderReport(results, snapshot.generatedAt);
   await writeFile(outputUrl, md, { encoding: "utf8" });
   process.stdout.write(`wrote ${outputUrl.pathname}\n`);
 }

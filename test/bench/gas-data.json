@@ -1,44 +1,61 @@
-[
-  {
-    "scheme": "ecdsa",
-    "status": "ok",
-    "runs": [
-      "76098",
-      "76110",
-      "76110"
-    ],
-    "mean": "76106",
-    "variance": 0.00015767482195884686,
-    "totalGas": "76098",
-    "calldataGas": "1028",
-    "executionGas": "75070"
-  },
-  {
-    "scheme": "falcon",
-    "status": "ok",
-    "runs": [
-      "4090133",
-      "3835809",
-      "4091711"
-    ],
-    "mean": "4005884",
-    "variance": 0.06388153026897433,
-    "totalGas": "4090133",
-    "calldataGas": "14396",
-    "executionGas": "4075737"
-  },
-  {
-    "scheme": "mldsa",
-    "status": "ok",
-    "runs": [
-      "8378436",
-      "8465715",
-      "8318888"
-    ],
-    "mean": "8387679",
-    "variance": 0.017505080964591038,
-    "totalGas": "8378436",
-    "calldataGas": "38420",
-    "executionGas": "8340016"
-  }
-]
+{
+  "generatedAt": "2026-04-18T17:36:44.080Z",
+  "results": [
+    {
+      "scheme": "ecdsa",
+      "status": "ok",
+      "runs": [
+        "76110",
+        "76098",
+        "76098"
+      ],
+      "mean": "76102",
+      "variance": 0.00015768310951091955,
+      "totalGas": "76110",
+      "calldataGas": "1040",
+      "executionGas": "75070"
+    },
+    {
+      "scheme": "falcon",
+      "status": "ok",
+      "runs": [
+        "4090133",
+        "4090330",
+        "3835194"
+      ],
+      "mean": "4005219",
+      "variance": 0.063700886268641,
+      "totalGas": "4090133",
+      "calldataGas": "14396",
+      "executionGas": "4075737"
+    },
+    {
+      "scheme": "mldsa",
+      "status": "ok",
+      "runs": [
+        "8438754",
+        "8375783",
+        "8438075"
+      ],
+      "mean": "8417537",
+      "variance": 0.007480929397756137,
+      "totalGas": "8438754",
+      "calldataGas": "38408",
+      "executionGas": "8400346"
+    },
+    {
+      "scheme": "mldsa-eth",
+      "status": "ok",
+      "runs": [
+        "4944863",
+        "4943684",
+        "4949221"
+      ],
+      "mean": "4945922",
+      "variance": 0.0011195081523728034,
+      "totalGas": "4944863",
+      "calldataGas": "38444",
+      "executionGas": "4906419"
+    }
+  ]
+}

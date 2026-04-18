@@ -1,7 +1,8 @@
 /**
- * Story 5-1 — Gas benchmark harness.
+ * Story 5-1 — Gas benchmark harness (extended to 4 schemes by Story 5
+ * Task 6 per AC-5-6 + AC-5-9).
  *
- * For each signature scheme (ecdsa, falcon, mldsa):
+ * For each signature scheme (ecdsa, falcon, mldsa, mldsa-eth):
  *   1. Deploy EntryPoint + scheme-specific verifier + account via
  *      ERC1967Proxy (single `hre.network.connect()` — cross-fixture
  *      network sharing constraint, see test/accounts/mldsa.test.ts:38-42).
@@ -42,6 +43,10 @@ import {
 
 import { deployFalconVerifier, registerPublicKey as registerFalconKey } from "../fixtures/falcon.js";
 import {
+  deployDilithiumEthVerifier,
+  registerPublicKey as registerMldsaEthKey,
+} from "../fixtures/mldsa-eth.js";
+import {
   deployDilithiumVerifier,
   registerPublicKey as registerMldsaKey,
 } from "../fixtures/mldsa.js";
@@ -54,7 +59,12 @@ import {
 } from "../signers/index.js";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
-const SCHEMES = ["ecdsa", "falcon", "mldsa"] as const satisfies readonly Scheme[];
+const SCHEMES = [
+  "ecdsa",
+  "falcon",
+  "mldsa",
+  "mldsa-eth",
+] as const satisfies readonly Scheme[];
 
 // Fixed, scheme-agnostic gas envelope. Verification limit must be large
 // enough for ML-DSA's on-chain verify — empirically the largest of the
@@ -194,12 +204,39 @@ async function deployAccount(
     return { proxyAddress: proxy.address, alice };
   }
 
-  // mldsa
-  const { dilithiumVerifier } = await deployDilithiumVerifier(viem);
-  const pointerHex = await registerMldsaKey(dilithiumVerifier, alice.publicKey);
-  const implementation = await viem.deployContract("MlDsaAccount", [
+  if (scheme === "mldsa") {
+    const { dilithiumVerifier } = await deployDilithiumVerifier(viem);
+    const pointerHex = await registerMldsaKey(
+      dilithiumVerifier,
+      alice.publicKey,
+    );
+    const implementation = await viem.deployContract("MlDsaAccount", [
+      entryPointAddress,
+      dilithiumVerifier.address,
+    ]);
+    const initData = encodeFunctionData({
+      abi: implementation.abi,
+      functionName: "initialize",
+      args: [ZERO_ADDRESS, pointerHex],
+    });
+    const proxy = await viem.deployContract("ERC1967Proxy", [
+      implementation.address,
+      initData,
+    ]);
+    return { proxyAddress: proxy.address, alice };
+  }
+
+  // mldsa-eth — Story 5 Task 6 branch. Same shape as mldsa but with the
+  // ETH-variant verifier (Keccak-PRG fork; keys + sigs not interchangeable
+  // with the NIST variant per DD-1).
+  const { dilithiumEthVerifier } = await deployDilithiumEthVerifier(viem);
+  const pointerHex = await registerMldsaEthKey(
+    dilithiumEthVerifier,
+    alice.publicKey,
+  );
+  const implementation = await viem.deployContract("MlDsaEthAccount", [
     entryPointAddress,
-    dilithiumVerifier.address,
+    dilithiumEthVerifier.address,
   ]);
   const initData = encodeFunctionData({
     abi: implementation.abi,
@@ -352,7 +389,11 @@ describe("Story 5-1 — Gas benchmark", () => {
         results.push(result);
       }
 
-      assert.equal(results.length, 3, "expected one record per scheme");
+      assert.equal(
+        results.length,
+        SCHEMES.length,
+        "expected one record per scheme",
+      );
 
       // Story AC-2 asks for variance < 0.01. Empirically on HH3 EDR, PQC
       // schemes show ~6% swing that appears tied to EIP-3529 refund-cap
@@ -425,11 +466,22 @@ describe("Story 5-1 — Gas benchmark", () => {
       // Snapshot refresh is opt-in: routine test runs leave the committed
       // gas-data.json untouched; `npm run bench:update` (UPDATE_BENCH=1)
       // rewrites it when the operator explicitly wants a new baseline.
+      //
+      // Story 5 Task 6 schema bump (AC-5-7 strict determinism): write as
+      // `{ generatedAt, results }` instead of a bare `BenchResult[]`. The
+      // report generator reads `generatedAt` from this field and renders
+      // the `_Generated:` header deterministically so two consecutive
+      // `npm run report` runs on an unchanged snapshot produce a byte-
+      // identical `docs/gas-report.md`.
       if (process.env.UPDATE_BENCH) {
+        const snapshot = {
+          generatedAt: new Date().toISOString(),
+          results,
+        };
         await writeFile(
           "test/bench/gas-data.json",
           JSON.stringify(
-            results,
+            snapshot,
             (_k, v) => (typeof v === "bigint" ? v.toString() : v),
             2,
           ),
@@ -468,6 +520,7 @@ describe("Story 5-1 — Gas benchmark", () => {
         ecdsa: { corrupt: corruptFirstByte },
         falcon: {},
         mldsa: {},
+        "mldsa-eth": {},
       };
 
       const results: BenchResult[] = [];
@@ -483,11 +536,8 @@ describe("Story 5-1 — Gas benchmark", () => {
         results.push(r);
       }
 
-      const [ecdsaResult, falconResult, mldsaResult] = results as [
-        BenchResult,
-        BenchResult,
-        BenchResult,
-      ];
+      const [ecdsaResult, falconResult, mldsaResult, mldsaEthResult] =
+        results as [BenchResult, BenchResult, BenchResult, BenchResult];
 
       for (const r of results) {
         console.log(
@@ -499,12 +549,16 @@ describe("Story 5-1 — Gas benchmark", () => {
       assert.equal(ecdsaResult.status, "failed");
       assert.equal(falconResult.status, "ok");
       assert.equal(mldsaResult.status, "ok");
+      assert.equal(mldsaEthResult.status, "ok");
 
       if (falconResult.status === "ok") {
         assert.equal(falconResult.runs.length, 3);
       }
       if (mldsaResult.status === "ok") {
         assert.equal(mldsaResult.runs.length, 3);
+      }
+      if (mldsaEthResult.status === "ok") {
+        assert.equal(mldsaEthResult.runs.length, 3);
       }
     },
   );
