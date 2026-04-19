@@ -1,11 +1,15 @@
 /**
- * Fixture-gen CLI (Story 1, Tasks 3 + 4) — pre-flight diagnostics + core generation path.
+ * Fixture-gen CLI (Story 1, Tasks 3 + 4; extended Story 1-1 Task T0 — falcon-eth branch).
  *
  * Produces the two KAT fixture files consumed by the Story 2–5 test suite:
  *   - test/fixtures/kat/mldsa-eth/vectors.json (DD-7, 100 vectors)
  *   - test/fixtures/kat/keccak-prg/vectors.json (DD-11, 4 Layer-1 + ≥3 Layer-2)
  *
- * Invocation: `npx tsx scripts/generate-kat-fixtures.ts` (AC-1-1).
+ * Invocation: `npx tsx scripts/generate-kat-fixtures.ts [--scheme mldsa-eth|falcon-eth]`.
+ * Default scheme is `mldsa-eth`. The `--scheme falcon-eth` branch is gated by
+ * Story 1-1: currently implements only T0 (PRE_G4_DRBG_PROBE) as a pre-flight
+ * gate; T1 (bulk vectors.json write) + T2 (hashtopoint-vectors.json) land in
+ * subsequent commits.
  *
  * Flow (per architecture §UC-2 "Fixture regeneration"):
  *   0. Pre-flight diagnostics (AC-U-2, Task 4). Four checks run in order —
@@ -127,6 +131,27 @@ const ML_DSA_FIXTURE = path.join(FIXTURE_DIR, "mldsa-eth", "vectors.json");
 const PRG_FIXTURE = path.join(FIXTURE_DIR, "keccak-prg", "vectors.json");
 
 /**
+ * ETHFALCON KAT .rsp path — consumed by Story 1-1 T0 (PRE_G4_DRBG_PROBE) and
+ * T1 (bulk transcription). Test-only override: `KAT_ETHFALCON_RSP_PATH` (only
+ * honored when `ALLOW_TEST_OVERRIDES=1`). Regex-validated at ingest (NFR-9).
+ */
+function ethfalconRspPath(): string {
+  const override = process.env["KAT_ETHFALCON_RSP_PATH"];
+  if (override !== undefined && override !== "") {
+    requireTestOverrideSentinel("KAT_ETHFALCON_RSP_PATH");
+    validateTestOverrideFormat(
+      "KAT_ETHFALCON_RSP_PATH",
+      override,
+      /^[A-Za-z0-9_./-]+$/,
+    );
+    return path.isAbsolute(override)
+      ? override
+      : path.resolve(REPO_ROOT, override);
+  }
+  return path.join(REPO_ROOT, "ETHFALCON", "test", "ethfalcon512-KAT.rsp");
+}
+
+/**
  * Required Python version range (AC-1-6). Chosen ≥3.9 because local dev runs
  * Python 3.9.6 and `pycryptodome == 3.23.0` + `eth_abi` are verified against
  * that floor in the pinned submodule's `requirements.txt`. `<4` guards against
@@ -163,7 +188,68 @@ type DiagnosticCode =
   | "SUBMODULE_UNINIT"
   | "SUBMODULE_PIN_MISMATCH"
   | "PYTHON_VERSION_MISMATCH"
-  | "PYTHON_DEPS_MISSING";
+  | "PYTHON_DEPS_MISSING"
+  | "PRE_G4_DRBG_PROBE_FAILED"
+  | "TEST_OVERRIDE_SENTINEL_MISSING"
+  | "TEST_OVERRIDE_INVALID_FORMAT";
+
+// ---------------------------------------------------------------------------
+// NFR-9 test-override safety helpers. Every new test-only env-var override
+// MUST (a) be rejected when `ALLOW_TEST_OVERRIDES=1` is unset, AND (b) be
+// regex-validated at ingest. See `.claude/rules/retrospect/universal.md`
+// §"[2026-04-18] Security-relevant test overrides need runtime gates".
+//
+// The pre-existing mldsa-eth overrides (KAT_SUBMODULE_PATH,
+// KAT_SUBMODULE_PIN_OVERRIDE, KAT_PYTHON_VERSION_OVERRIDE,
+// KAT_PYTHON_DEPS_PROBE_OVERRIDE) predate NFR-9; they are left ungated for
+// backward compatibility with `generate-kat-fixtures.test.ts` (test-harness
+// trusted, not operator-facing). NEW overrides added as part of Story 1-1
+// (falcon-eth branch) are all sentinel + regex gated.
+// ---------------------------------------------------------------------------
+
+/**
+ * Structured error used for test-override safety and PRE_G4_DRBG_PROBE
+ * failures. Uses the `readonly code` discriminant pattern established by
+ * `KatFixtureError` (see `test/fixtures/kat/index.ts:49`) and `test/signers/
+ * errors.ts`.
+ */
+export class FixtureGenError extends Error {
+  readonly code: DiagnosticCode;
+
+  constructor(
+    message: string,
+    code: DiagnosticCode,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = "FixtureGenError";
+    this.code = code;
+  }
+}
+
+function requireTestOverrideSentinel(varName: string): void {
+  const sentinel = process.env["ALLOW_TEST_OVERRIDES"];
+  if (sentinel !== "1") {
+    throw new FixtureGenError(
+      `Refusing to honor '${varName}': ALLOW_TEST_OVERRIDES=1 sentinel is not set. ` +
+        `Test-only overrides are off by default in operator-facing invocations.`,
+      "TEST_OVERRIDE_SENTINEL_MISSING",
+    );
+  }
+}
+
+function validateTestOverrideFormat(
+  varName: string,
+  value: string,
+  pattern: RegExp,
+): void {
+  if (!pattern.test(value)) {
+    throw new FixtureGenError(
+      `Invalid value for '${varName}': ${value} — expected pattern ${pattern.source}`,
+      "TEST_OVERRIDE_INVALID_FORMAT",
+    );
+  }
+}
 
 /**
  * Diagnostic failure signal. `kind = "ok"` if the check passed; `kind =
@@ -455,6 +541,593 @@ function runPreflightDiagnostics(): boolean {
     }
   }
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// ETHFALCON pre-flight diagnostics (Story 1-1 Task T0 — parallel to the
+// ETHDILITHIUM preflight above, parameterized for the `ETHFALCON/` submodule).
+// Re-uses the 4-mode taxonomy (SUBMODULE_UNINIT, SUBMODULE_PIN_MISMATCH,
+// PYTHON_VERSION_MISMATCH, PYTHON_DEPS_MISSING) so operator-facing error
+// strings are uniform across schemes.
+// ---------------------------------------------------------------------------
+
+/**
+ * Python modules probed before the ETHFALCON falcon-eth branch runs. The
+ * probe-list is the exact import footprint of `FALCON_PROBE_PY_T0` below
+ * (plus `polyntt.poly`, which is transitively imported by `falcon.py`).
+ * ETHFALCON's `pythonref/` has no `requirements.txt` bundled at the standard
+ * location; installation is via `pip install pycryptodome numpy` per
+ * `ETHFALCON/pythonref/makefile`.
+ */
+const ETHFALCON_PYTHON_DEPS_PROBE: readonly string[] = [
+  "drbg.aes256_ctr_drbg",
+  "falcon",
+  "ntrugen",
+  "shake",
+  "keccak_prng",
+  "polyntt.poly",
+];
+
+function readEthfalconSubmoduleStatus(): SubmoduleStatus {
+  const proc = spawnSync(
+    "git",
+    ["submodule", "status", "ETHFALCON"],
+    { cwd: REPO_ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+  );
+  if (proc.status !== 0) {
+    return { statusChar: "", pinnedSha: "", rawLine: "", probeFailed: true };
+  }
+  const rawLine = (proc.stdout ?? "").split("\n")[0] ?? "";
+  if (rawLine === "") {
+    return { statusChar: "", pinnedSha: "", rawLine, probeFailed: false };
+  }
+  const statusChar = /^[+\-U ]/.test(rawLine) ? rawLine.charAt(0) : "";
+  const stripped = statusChar === "" ? rawLine : rawLine.slice(1);
+  const pinnedSha = stripped.trim().split(/\s+/)[0] ?? "";
+  return { statusChar, pinnedSha, rawLine, probeFailed: false };
+}
+
+function ethfalconSubmoduleDir(): string {
+  const override = process.env["KAT_ETHFALCON_SUBMODULE_PATH"];
+  if (override !== undefined && override !== "") {
+    requireTestOverrideSentinel("KAT_ETHFALCON_SUBMODULE_PATH");
+    validateTestOverrideFormat(
+      "KAT_ETHFALCON_SUBMODULE_PATH",
+      override,
+      /^[A-Za-z0-9_./-]+$/,
+    );
+    return override;
+  }
+  return path.join(REPO_ROOT, "ETHFALCON");
+}
+
+function checkEthfalconSubmoduleUninit(status: SubmoduleStatus): DiagResult {
+  const dir = ethfalconSubmoduleDir();
+  if (!existsSync(dir)) {
+    return fail(
+      "SUBMODULE_UNINIT",
+      `ETHFALCON submodule directory not found at ${dir}. ` +
+        `Initialize with: git submodule update --init --recursive`,
+    );
+  }
+  let hasContent = false;
+  try {
+    const entries = readdirSync(dir);
+    hasContent = entries.length > 0 && entries.some((e) => e === "src");
+  } catch {
+    hasContent = false;
+  }
+  if (!hasContent) {
+    return fail(
+      "SUBMODULE_UNINIT",
+      `ETHFALCON submodule at ${dir} is empty or missing 'src/' subdir. ` +
+        `Initialize with: git submodule update --init --recursive`,
+    );
+  }
+  const isOverriddenPath =
+    process.env["KAT_ETHFALCON_SUBMODULE_PATH"] !== undefined &&
+    process.env["KAT_ETHFALCON_SUBMODULE_PATH"] !== "";
+  if (!isOverriddenPath) {
+    if (status.probeFailed || status.statusChar === "-") {
+      return fail(
+        "SUBMODULE_UNINIT",
+        `git submodule status ETHFALCON reports uninitialized state. ` +
+          `Initialize with: git submodule update --init --recursive`,
+      );
+    }
+  }
+  return OK;
+}
+
+function checkEthfalconSubmodulePinMismatch(
+  status: SubmoduleStatus,
+): DiagResult {
+  // Honor a test-only override via KAT_ETHFALCON_SUBMODULE_PIN_OVERRIDE
+  // (sentinel + regex gated per NFR-9).
+  let pinnedSha = status.pinnedSha;
+  const pinOverride = process.env["KAT_ETHFALCON_SUBMODULE_PIN_OVERRIDE"];
+  if (pinOverride !== undefined && pinOverride !== "") {
+    requireTestOverrideSentinel("KAT_ETHFALCON_SUBMODULE_PIN_OVERRIDE");
+    validateTestOverrideFormat(
+      "KAT_ETHFALCON_SUBMODULE_PIN_OVERRIDE",
+      pinOverride,
+      /^[0-9a-f]{40}$/,
+    );
+    pinnedSha = pinOverride;
+  }
+
+  let currentHead: string;
+  try {
+    currentHead = execFileSync(
+      "git",
+      ["-C", ethfalconSubmoduleDir(), "rev-parse", "HEAD"],
+      { cwd: REPO_ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    ).trim();
+  } catch {
+    return fail(
+      "SUBMODULE_PIN_MISMATCH",
+      `Failed to read ETHFALCON HEAD. expected=<unknown> actual=<unknown>. ` +
+        `Re-pin with: git -C ETHFALCON checkout ${pinnedSha}`,
+    );
+  }
+
+  const hasMismatch =
+    status.statusChar === "+" ||
+    (pinnedSha !== "" && pinnedSha !== currentHead);
+  if (hasMismatch) {
+    return fail(
+      "SUBMODULE_PIN_MISMATCH",
+      `ETHFALCON submodule at wrong commit: expected=${pinnedSha} actual=${currentHead}. ` +
+        `Re-pin with: git -C ETHFALCON checkout ${pinnedSha}`,
+    );
+  }
+  return OK;
+}
+
+function checkEthfalconPythonDeps(): DiagResult {
+  const modules: readonly string[] = ETHFALCON_PYTHON_DEPS_PROBE;
+  const pythonSnippet = modules.map((m) => `import ${m}`).join("; ");
+  const proc = spawnSync("python3", ["-c", pythonSnippet], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      PYTHONPATH: [
+        path.join(REPO_ROOT, "ETHFALCON", "pythonref"),
+        process.env["PYTHONPATH"] ?? "",
+      ]
+        .filter((p) => p !== "")
+        .join(path.delimiter),
+    },
+  });
+  if (proc.status !== 0) {
+    const stderrOut = (proc.stderr ?? "").trim();
+    const moduleMatch = stderrOut.match(/No module named ['"]([^'"]+)['"]/);
+    const missing = moduleMatch?.[1] ?? modules.join(", ");
+    return fail(
+      "PYTHON_DEPS_MISSING",
+      `ETHFALCON Python dependency probe failed — missing module: ${missing}. ` +
+        `Install with: pip install pycryptodome numpy && ensure ETHFALCON/pythonref is on PYTHONPATH. ` +
+        `Probe stderr: ${stderrOut.slice(0, 500)}`,
+    );
+  }
+  return OK;
+}
+
+/**
+ * Run all four pre-flight checks against the ETHFALCON submodule. Mirrors
+ * the ETHDILITHIUM preflight contract: on first failure, NDJSON diagnostic
+ * to stderr and return `false`.
+ */
+function runEthfalconPreflightDiagnostics(): boolean {
+  const status = readEthfalconSubmoduleStatus();
+  const checks: Array<() => DiagResult> = [
+    () => checkEthfalconSubmoduleUninit(status),
+    () => checkEthfalconSubmodulePinMismatch(status),
+    () => checkPythonVersion(), // Python interpreter is cross-scheme.
+    () => checkEthfalconPythonDeps(),
+  ];
+  for (const check of checks) {
+    const result = check();
+    if (result.kind === "fail") {
+      process.stderr.write(
+        JSON.stringify({ code: result.code, message: result.message }) + "\n",
+      );
+      return false;
+    }
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Story 1-1 Task T0 — PRE_G4_DRBG_PROBE (A-005 audit, load-bearing).
+//
+// Replays `ETHFALCON/pythonref/test_falcon_KAT.py::TestFalconKAT::test_KAT_ETH`
+// on vec 0 of `ETHFALCON/test/ethfalcon512-KAT.rsp` via a ONE-shot
+// `python3 -c` subprocess, then asserts three byte-equalities per
+// `docs/amendments.md` §A-002:
+//
+//   (1) `recoveredPk.pk == PublicKey.from_bytes(expected_pk).pk`
+//       — proves keygen NTRU gen is DRBG-state-deterministic (the NTRU
+//         generator consumes `inner_seed = drbg.random_bytes(48)`).
+//   (2) `py_sig[1:41] == sm[2:42]`
+//       — proves the post-keygen `drbg.random_bytes(SALT_LEN=40)` call
+//         consumed by salt generation advances correctly.
+//   (3) `py_sig[41:] == esig[1:1+len(py_enc_s)]` where
+//       `esig = sm[42+mlen : 42+mlen+sig_len]`, `sig_len = (sm[0]<<8)|sm[1]`
+//       — proves the Gaussian-sampling `drbg.random_bytes` stream is
+//         state-reproducible byte-for-byte.
+//
+// Any failure is a structured FixtureGenError with code
+// PRE_G4_DRBG_PROBE_FAILED that HALTS the CLI. The probe is REQUIRED before
+// T1 (bulk vectors.json write) so a single vec-0 spot-check guards the
+// correctness of all 100 downstream vectors.
+// ---------------------------------------------------------------------------
+
+/** Parsed vec-0 fields from the ETHFALCON .rsp (hex, lowercase). */
+interface EthfalconRspVec0 {
+  seedHex: string;
+  mlen: number;
+  msgHex: string;
+  pkHex: string;
+  smHex: string;
+}
+
+function parseEthfalconRspVec0(): EthfalconRspVec0 {
+  const rspPath = ethfalconRspPath();
+  if (!existsSync(rspPath)) {
+    throw new FixtureGenError(
+      `ETHFALCON .rsp not found at ${rspPath}. ` +
+        `Initialize submodules with: git submodule update --init --recursive`,
+      "PRE_G4_DRBG_PROBE_FAILED",
+    );
+  }
+  const raw = readFileSync(rspPath, "utf8");
+  const rec: Partial<EthfalconRspVec0> & { count?: number } = {};
+  for (const rawLine of raw.split("\n")) {
+    const line = rawLine.trim();
+    if (line === "" || line.startsWith("#")) {
+      if (rec.count !== undefined) break; // first record complete
+      continue;
+    }
+    const eq = line.indexOf("=");
+    if (eq < 0) continue;
+    const key = line.slice(0, eq).trim();
+    const value = line.slice(eq + 1).trim();
+    switch (key) {
+      case "count":
+        rec.count = Number.parseInt(value, 10);
+        break;
+      case "seed":
+        rec.seedHex = value.toLowerCase();
+        break;
+      case "mlen":
+        rec.mlen = Number.parseInt(value, 10);
+        break;
+      case "msg":
+        rec.msgHex = value.toLowerCase();
+        break;
+      case "pk":
+        rec.pkHex = value.toLowerCase();
+        break;
+      case "sm":
+        rec.smHex = value.toLowerCase();
+        break;
+      default:
+        break;
+    }
+  }
+  if (rec.count !== 0) {
+    throw new FixtureGenError(
+      `Expected first record of ETHFALCON .rsp to be count=0, got count=${String(rec.count)}`,
+      "PRE_G4_DRBG_PROBE_FAILED",
+    );
+  }
+  for (const field of ["seedHex", "mlen", "msgHex", "pkHex", "smHex"] as const) {
+    if (rec[field] === undefined) {
+      throw new FixtureGenError(
+        `ETHFALCON .rsp vec 0 missing field '${field}'`,
+        "PRE_G4_DRBG_PROBE_FAILED",
+      );
+    }
+  }
+  return {
+    seedHex: rec.seedHex!,
+    mlen: rec.mlen!,
+    msgHex: rec.msgHex!,
+    pkHex: rec.pkHex!,
+    smHex: rec.smHex!,
+  };
+}
+
+/**
+ * Python probe passed to `python3 -c`. Reads a single JSON object from stdin
+ * with `{seed, msg}`, runs the `test_KAT_ETH` flow, emits one JSON object
+ * on stdout: `{recoveredPk, pkCoeffsHex, salt, enc_s, py_header}`.
+ *
+ * NFR-3: stays as a TS string; no `.py` file ships under `scripts/`.
+ */
+const FALCON_PROBE_PY_T0 = `
+import json
+import sys
+sys.path.insert(0, "ETHFALCON/pythonref")
+
+from drbg.aes256_ctr_drbg import AES256_CTR_DRBG
+from falcon import SecretKey, PublicKey
+from ntrugen import ntru_gen
+from shake import SHAKE
+from keccak_prng import KeccakPRNG
+
+
+def pk_coeffs_to_hex(pk_obj):
+    # Each coefficient < 12289 fits in 14 bits; emit as 2-byte BE uint16s
+    # (values are well under 2^16). This is a deterministic, compact
+    # encoding used only for cross-process byte-equality comparison.
+    return b"".join(int(c).to_bytes(2, "big") for c in pk_obj.pk).hex()
+
+
+payload = json.loads(sys.stdin.read())
+seed = bytes.fromhex(payload["seed"])
+msg = bytes.fromhex(payload["msg"])
+
+# Exact replay of test_KAT_ETH (ETHFALCON/pythonref/test_falcon_KAT.py:122-134).
+drbg = AES256_CTR_DRBG(seed)
+inner_seed = drbg.random_bytes(48)
+prng = SHAKE.new(inner_seed)
+prng.flip()
+n = 512
+f, g, F, G = ntru_gen(n, randombytes=prng.read, logn=9)
+sk = SecretKey(n, [f, g, F, G])
+pk = PublicKey(n, sk.h)
+sig = sk.sign(msg, randombytes=drbg.random_bytes, xof=KeccakPRNG)
+
+# Python sig layout: header(1) || salt(40) || enc_s(variable)
+sys.stdout.write(json.dumps({
+    "pkCoeffsHex": pk_coeffs_to_hex(pk),
+    "sigHex": sig.hex(),
+}))
+sys.stdout.flush()
+`;
+
+interface ProbePythonResult {
+  pkCoeffsHex: string;
+  sigHex: string;
+}
+
+/**
+ * Derive the hex uint16-BE coefficient encoding of a raw 897-byte ETHFALCON
+ * public key. Mirrors `PublicKey.from_bytes(pk_bytes).pk` in Python
+ * (falcon.py:237-285) — 14-bit unpacking + value check — then re-emits as
+ * 2-byte BE uint16s to match the Python probe's `pk_coeffs_to_hex`. This
+ * gives a side-by-side byte-equality comparison without depending on
+ * Python-side pickling/serialization semantics.
+ */
+function expectedPkCoeffsHex(pkHex: string): string {
+  const pk = Buffer.from(pkHex, "hex");
+  if (pk.length !== 897) {
+    throw new FixtureGenError(
+      `ETHFALCON vec-0 pk has length ${String(pk.length)}, expected 897`,
+      "PRE_G4_DRBG_PROBE_FAILED",
+    );
+  }
+  if (pk[0] !== 0x09) {
+    throw new FixtureGenError(
+      `ETHFALCON vec-0 pk header byte is 0x${pk[0]!.toString(16)}, expected 0x09`,
+      "PRE_G4_DRBG_PROBE_FAILED",
+    );
+  }
+  const coeffs: number[] = [];
+  let acc = 0n;
+  let accBits = 0;
+  const N = 512;
+  for (let i = 1; i < pk.length && coeffs.length < N; i++) {
+    acc = (acc << 8n) | BigInt(pk[i]!);
+    accBits += 8;
+    while (accBits >= 14 && coeffs.length < N) {
+      accBits -= 14;
+      const val = Number((acc >> BigInt(accBits)) & 0x3fffn);
+      if (val >= 12289) {
+        throw new FixtureGenError(
+          `ETHFALCON vec-0 pk has invalid coefficient ${val} at index ${coeffs.length}`,
+          "PRE_G4_DRBG_PROBE_FAILED",
+        );
+      }
+      coeffs.push(val);
+      acc &= (1n << BigInt(accBits)) - 1n;
+    }
+  }
+  if (coeffs.length !== N) {
+    throw new FixtureGenError(
+      `ETHFALCON vec-0 pk decoded to ${coeffs.length} coefficients, expected ${N}`,
+      "PRE_G4_DRBG_PROBE_FAILED",
+    );
+  }
+  const out = Buffer.alloc(N * 2);
+  for (let i = 0; i < N; i++) {
+    out.writeUInt16BE(coeffs[i]!, i * 2);
+  }
+  return out.toString("hex");
+}
+
+/**
+ * Run PRE_G4_DRBG_PROBE (Story 1-1 Task T0). Spawns the Python probe via
+ * `python3 -c`, compares the three windows described above, HALTs (throws
+ * FixtureGenError) on any mismatch. On success, returns `void` and the
+ * caller proceeds.
+ */
+export function preG4DrbgProbe(): void {
+  const vec0 = parseEthfalconRspVec0();
+
+  // Honor an OPTIONAL test-hook: KAT_FALCON_PROBE_FORCE_FAIL=1 forces a
+  // synthetic failure to exercise the HALT path (sentinel-gated).
+  const forceFail = process.env["KAT_FALCON_PROBE_FORCE_FAIL"];
+  if (forceFail !== undefined && forceFail !== "") {
+    requireTestOverrideSentinel("KAT_FALCON_PROBE_FORCE_FAIL");
+    validateTestOverrideFormat(
+      "KAT_FALCON_PROBE_FORCE_FAIL",
+      forceFail,
+      /^[01]$/,
+    );
+    if (forceFail === "1") {
+      throw new FixtureGenError(
+        "PRE_G4_DRBG_PROBE forced to fail by KAT_FALCON_PROBE_FORCE_FAIL=1. " +
+          "See docs/amendments.md §A-002 for the byte-equality predicates.",
+        "PRE_G4_DRBG_PROBE_FAILED",
+      );
+    }
+  }
+
+  // Spawn ONE subprocess. NFR-3: Python source is passed as a `-c` string
+  // argument (no .py file added under scripts/). NFR-9: the only
+  // interpolated test-override `KAT_ETHFALCON_RSP_PATH` has already been
+  // regex-validated by `parseEthfalconRspVec0`; the seed/msg values below
+  // come from the pinned submodule .rsp (not from env vars), so there is
+  // no operator-controllable interpolation into the Python source.
+  const pyProc = spawnSync("python3", ["-c", FALCON_PROBE_PY_T0], {
+    cwd: REPO_ROOT,
+    input: JSON.stringify({ seed: vec0.seedHex, msg: vec0.msgHex }),
+    encoding: "utf8",
+    maxBuffer: 16 * 1024 * 1024,
+    stdio: ["pipe", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      PYTHONPATH: [
+        path.join(REPO_ROOT, "ETHFALCON", "pythonref"),
+        process.env["PYTHONPATH"] ?? "",
+      ]
+        .filter((p) => p !== "")
+        .join(path.delimiter),
+    },
+  });
+  if (pyProc.status !== 0) {
+    throw new FixtureGenError(
+      `PRE_G4_DRBG_PROBE: python3 subprocess failed (exit ${String(pyProc.status)}):\n${pyProc.stderr ?? ""}`,
+      "PRE_G4_DRBG_PROBE_FAILED",
+    );
+  }
+
+  let py: ProbePythonResult;
+  try {
+    py = JSON.parse(pyProc.stdout) as ProbePythonResult;
+  } catch (cause) {
+    throw new FixtureGenError(
+      `PRE_G4_DRBG_PROBE: failed to parse python stdout as JSON: ${String(cause)}`,
+      "PRE_G4_DRBG_PROBE_FAILED",
+      { cause: cause instanceof Error ? cause : undefined },
+    );
+  }
+
+  // Window 1: recovered PublicKey coefficients must equal the .rsp pk
+  // decoded via the same 14-bit unpacking. This proves the keygen DRBG
+  // state is reproducible (ntru_gen consumes drbg.random_bytes(48)).
+  const expectedPkCoeffs = expectedPkCoeffsHex(vec0.pkHex);
+  if (py.pkCoeffsHex !== expectedPkCoeffs) {
+    throw new FixtureGenError(
+      "PRE_G4_DRBG_PROBE FAILED window-1 (keygen DRBG state): " +
+        `recovered pk coefficients differ from .rsp pk coefficients. ` +
+        `recovered[:32]=0x${py.pkCoeffsHex.slice(0, 64)} ` +
+        `expected[:32]=0x${expectedPkCoeffs.slice(0, 64)}. ` +
+        `Log this as an A-005-equivalent finding in docs/amendments.md and HALT.`,
+      "PRE_G4_DRBG_PROBE_FAILED",
+    );
+  }
+
+  // Windows 2 and 3: parse the .rsp sm layout per amendments.md §A-002 and
+  // compare salt + enc_s prefixes.
+  const sm = Buffer.from(vec0.smHex, "hex");
+  if (sm.length < 42 + vec0.mlen + 1) {
+    throw new FixtureGenError(
+      `PRE_G4_DRBG_PROBE: .rsp sm length ${sm.length} too short for header+salt+msg+header+esig layout`,
+      "PRE_G4_DRBG_PROBE_FAILED",
+    );
+  }
+  const sigLen = (sm[0]! << 8) | sm[1]!;
+  const rspSaltHex = sm.subarray(2, 42).toString("hex");
+  const rspMsgInSm = sm.subarray(42, 42 + vec0.mlen).toString("hex");
+  const esig = sm.subarray(42 + vec0.mlen, 42 + vec0.mlen + sigLen);
+  if (esig.length < 1) {
+    throw new FixtureGenError(
+      `PRE_G4_DRBG_PROBE: .rsp sm esig window is empty (sig_len=${sigLen})`,
+      "PRE_G4_DRBG_PROBE_FAILED",
+    );
+  }
+  // Sanity: the message embedded in sm must match the standalone .rsp msg.
+  if (rspMsgInSm !== vec0.msgHex) {
+    throw new FixtureGenError(
+      `PRE_G4_DRBG_PROBE: sm embedded msg (${rspMsgInSm}) != .rsp msg (${vec0.msgHex}) — .rsp layout drift`,
+      "PRE_G4_DRBG_PROBE_FAILED",
+    );
+  }
+
+  const sig = Buffer.from(py.sigHex, "hex");
+  if (sig.length < 1 + 40 + 1) {
+    throw new FixtureGenError(
+      `PRE_G4_DRBG_PROBE: python sig length ${sig.length} too short for header(1)+salt(40)+enc_s`,
+      "PRE_G4_DRBG_PROBE_FAILED",
+    );
+  }
+  const pySaltHex = sig.subarray(1, 41).toString("hex");
+  const pyEncS = sig.subarray(41);
+
+  // Window 2: salt.
+  if (pySaltHex !== rspSaltHex) {
+    throw new FixtureGenError(
+      "PRE_G4_DRBG_PROBE FAILED window-2 (salt / post-keygen DRBG state): " +
+        `recovered salt 0x${pySaltHex} != .rsp salt 0x${rspSaltHex}. ` +
+        `Log this as an A-005-equivalent finding in docs/amendments.md and HALT.`,
+      "PRE_G4_DRBG_PROBE_FAILED",
+    );
+  }
+
+  // Window 3: enc_s prefix.
+  const esigBody = esig.subarray(1); // strip the 1-byte esig header (0x29)
+  const compareLen = Math.min(pyEncS.length, esigBody.length);
+  if (compareLen === 0) {
+    throw new FixtureGenError(
+      "PRE_G4_DRBG_PROBE: no bytes to compare for window-3 (Gaussian body). " +
+        `py_enc_s_len=${pyEncS.length} esig_body_len=${esigBody.length}`,
+      "PRE_G4_DRBG_PROBE_FAILED",
+    );
+  }
+  const pyEncSPrefix = pyEncS.subarray(0, compareLen);
+  const esigBodyPrefix = esigBody.subarray(0, compareLen);
+  if (!pyEncSPrefix.equals(esigBodyPrefix)) {
+    // Locate the first mismatching byte for the error message.
+    let diffIdx = 0;
+    while (
+      diffIdx < compareLen &&
+      pyEncSPrefix[diffIdx] === esigBodyPrefix[diffIdx]
+    ) {
+      diffIdx++;
+    }
+    throw new FixtureGenError(
+      "PRE_G4_DRBG_PROBE FAILED window-3 (Gaussian-body DRBG state): " +
+        `enc_s prefix diverges at byte ${diffIdx} / ${compareLen}. ` +
+        `recovered[${diffIdx}..${Math.min(diffIdx + 8, compareLen)}]=0x${pyEncSPrefix
+          .subarray(diffIdx, Math.min(diffIdx + 8, compareLen))
+          .toString("hex")} ` +
+        `expected[${diffIdx}..${Math.min(diffIdx + 8, compareLen)}]=0x${esigBodyPrefix
+          .subarray(diffIdx, Math.min(diffIdx + 8, compareLen))
+          .toString("hex")}. ` +
+        `Log this as an A-005-equivalent finding in docs/amendments.md and HALT.`,
+      "PRE_G4_DRBG_PROBE_FAILED",
+    );
+  }
+
+  process.stdout.write(
+    JSON.stringify({
+      event: "PRE_G4_DRBG_PROBE_PASS",
+      vec: 0,
+      rsp: path.relative(REPO_ROOT, ethfalconRspPath()),
+      windows: {
+        keygen: "recovered pk coefficients byte-identical to .rsp pk (512 coeffs)",
+        salt: `py_salt == sm[2:42] (40 B): 0x${pySaltHex}`,
+        encS: `py_enc_s[:${compareLen}] == esig[1:${compareLen + 1}] (${compareLen} B)`,
+      },
+      note: "DRBG state-advancement is byte-reproducible for vec 0. T1 bulk write may proceed under this invariant.",
+    }) + "\n",
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -902,7 +1575,86 @@ interface PythonPrgResult {
   expected: string[];
 }
 
+/**
+ * Parse `--scheme <name>` out of argv. Supported values:
+ *   - "mldsa-eth" (default, backward-compatible with pre-Story-1-1 CLI)
+ *   - "falcon-eth" (Story 1-1 — currently runs T0 PRE_G4_DRBG_PROBE only)
+ *
+ * Unrecognized schemes cause a non-zero exit with an operator-readable error.
+ * Missing `--scheme` defaults to "mldsa-eth" so `npm run kat:regen` (without
+ * flags) preserves its pre-Story-1-1 behavior byte-for-byte.
+ */
+type Scheme = "mldsa-eth" | "falcon-eth";
+
+function parseSchemeArg(argv: readonly string[]): Scheme | "invalid" {
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--scheme") {
+      const val = argv[i + 1];
+      if (val === "mldsa-eth" || val === "falcon-eth") return val;
+      return "invalid";
+    }
+    if (argv[i]?.startsWith("--scheme=")) {
+      const val = argv[i]!.slice("--scheme=".length);
+      if (val === "mldsa-eth" || val === "falcon-eth") return val;
+      return "invalid";
+    }
+  }
+  return "mldsa-eth";
+}
+
+/**
+ * Story 1-1 Task T0 CLI branch. Runs:
+ *   (1) ETHFALCON preflight diagnostics (submodule init, pin, python, deps);
+ *   (2) PRE_G4_DRBG_PROBE on vec 0;
+ *   (3) exits 0 with a "T1 bulk write not yet implemented" notice.
+ *
+ * T1 and T2 will replace the early exit with the full vectors.json +
+ * hashtopoint-vectors.json write path.
+ */
+function mainFalconEth(): number {
+  if (!runEthfalconPreflightDiagnostics()) {
+    return 1;
+  }
+  try {
+    preG4DrbgProbe();
+  } catch (err) {
+    if (err instanceof FixtureGenError) {
+      process.stderr.write(
+        JSON.stringify({ code: err.code, message: err.message }) + "\n",
+      );
+      return 1;
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(
+      JSON.stringify({
+        code: "PRE_G4_DRBG_PROBE_FAILED",
+        message: `Unexpected probe error: ${message}`,
+      }) + "\n",
+    );
+    return 1;
+  }
+  process.stdout.write(
+    "T0 PRE_G4_DRBG_PROBE passed; T1 bulk write not yet implemented — exiting\n",
+  );
+  return 0;
+}
+
 function main(): number {
+  const scheme = parseSchemeArg(process.argv.slice(2));
+  if (scheme === "invalid") {
+    process.stderr.write(
+      JSON.stringify({
+        code: "INVALID_SCHEME",
+        message:
+          "Unrecognized --scheme value. Supported: 'mldsa-eth' (default), 'falcon-eth'.",
+      }) + "\n",
+    );
+    return 1;
+  }
+  if (scheme === "falcon-eth") {
+    return mainFalconEth();
+  }
+
   // Step 0: AC-U-2 pre-flight diagnostics (Task 4). Covers SUBMODULE_UNINIT,
   // SUBMODULE_PIN_MISMATCH, PYTHON_VERSION_MISMATCH, PYTHON_DEPS_MISSING.
   // On any failure, the NDJSON diagnostic has already been written to stderr;
