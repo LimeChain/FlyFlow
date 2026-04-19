@@ -39,6 +39,7 @@ import {
   type HashToPointVector,
   type MlDsaEthKatVector,
   KatFixtureError,
+  loadFalconPrgVectors,
   loadHashToPointVectors,
   loadKatVectors,
   loadPrgVectors,
@@ -445,6 +446,136 @@ describe("KAT loader — real-fixture happy paths (AC-1, AC-2)", () => {
         assert.ok(c >= 0 && c < 12289, `coefficient out of range: ${c}`);
       }
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// falcon-eth Story 1-2 Task T2 §3 — loader tests for loadFalconPrgVectors.
+// Mirrors the mldsa-eth `loadPrgVectors` test harness (synthetic tmp-dir via
+// KAT_FIXTURE_DIR override) and the Story 1-1 multi-submodule schema tests.
+// Covers: happy path (real fixture, no override), missing fixture, missing
+// `submoduleSource`, and wrong-but-known-value `submoduleSource` ("ethdilithium"
+// when the G1 loader requires "ethfalcon").
+// ---------------------------------------------------------------------------
+
+describe("loadFalconPrgVectors (G1 loader — AC-4/AC-5 equivalents, Story 1-2 T2 §3)", () => {
+  let tmpRoot: string;
+  const savedEnv = process.env["KAT_FIXTURE_DIR"];
+
+  before(() => {
+    tmpRoot = mkdtempSync(path.join(tmpdir(), "kat-loader-falcon-prg-test-"));
+  });
+
+  after(() => {
+    rmSync(tmpRoot, { recursive: true, force: true });
+    if (savedEnv === undefined) {
+      delete process.env["KAT_FIXTURE_DIR"];
+    } else {
+      process.env["KAT_FIXTURE_DIR"] = savedEnv;
+    }
+  });
+
+  beforeEach(() => {
+    for (const sub of ["mldsa-eth", "falcon-eth", "keccak-prg"]) {
+      rmSync(path.join(tmpRoot, sub), { recursive: true, force: true });
+    }
+  });
+
+  afterEach(() => {
+    delete process.env["KAT_FIXTURE_DIR"];
+  });
+
+  it("happy path: returns ≥6 typed vectors from the committed fixture with ethfalcon-python-ref source", () => {
+    // No KAT_FIXTURE_DIR override — exercise the real committed corpus.
+    // Per `.claude/rules/retrospect/universal.md` §"Override-based tests need a
+    // real-path counterpart", this is the real-path counterpart to the three
+    // override-based failure tests below.
+    const vectors = loadFalconPrgVectors();
+    assert.ok(Array.isArray(vectors), "expected an array");
+    assert.ok(
+      vectors.length >= 6,
+      `expected ≥6 G1 vectors, got ${vectors.length}`,
+    );
+
+    const first = vectors[0];
+    assert.ok(first !== undefined, "expected vector at index 0");
+    // Shape assertions — every PrgVector carries these fields.
+    assert.equal(typeof first.id, "string");
+    assert.equal(first.source, "ethfalcon-python-ref");
+    assert.ok(Array.isArray(first.injects), "injects must be an array");
+    assert.ok(Array.isArray(first.extracts), "extracts must be an array");
+    assert.ok(Array.isArray(first.expected), "expected must be an array");
+  });
+
+  it("throws KAT_FIXTURE_MISSING when falcon-eth/prg-vectors.json does not exist", () => {
+    // No falcon-eth/prg-vectors.json written — the loader must surface the
+    // ENOENT-derived KAT_FIXTURE_MISSING error (not a raw filesystem error).
+    process.env["KAT_FIXTURE_DIR"] = tmpRoot;
+
+    const err = captureThrow(() => loadFalconPrgVectors());
+    assert.ok(err instanceof KatFixtureError, "expected KatFixtureError");
+    assert.equal(err.code, "KAT_FIXTURE_MISSING");
+    assert.match(err.message, /prg-vectors\.json/);
+  });
+
+  it("throws KAT_SCHEMA_MISMATCH when 'submoduleSource' is missing (G1 must_have line 371)", () => {
+    const falconDir = path.join(tmpRoot, "falcon-eth");
+    mkdirSync(falconDir, { recursive: true });
+    writeFileSync(
+      path.join(falconDir, "prg-vectors.json"),
+      JSON.stringify({
+        scheme: "falcon-eth",
+        gate: "G1-keccak-prg",
+        // NOTE: 'submoduleSource' intentionally omitted.
+        submoduleSha: currentEthfalconHead(),
+        generatedAt: "2026-04-19T00:00:00Z",
+        source: {
+          pythonClass: "KeccakPRNG",
+          pythonFile: "x",
+          generator: "y",
+        },
+        vectors: [],
+      }),
+    );
+    process.env["KAT_FIXTURE_DIR"] = tmpRoot;
+
+    const err = captureThrow(() => loadFalconPrgVectors());
+    assert.ok(err instanceof KatFixtureError, "expected KatFixtureError");
+    assert.equal(err.code, "KAT_SCHEMA_MISMATCH");
+    assert.match(err.message, /submoduleSource/);
+  });
+
+  it("throws KAT_SCHEMA_MISMATCH when 'submoduleSource' is 'ethdilithium' (wrong-for-G1-loader, must_have line 371)", () => {
+    // Known-enum-value but wrong-for-this-loader — the G1 loader is tightly
+    // scoped to ethfalcon-sourced corpora per Story 1-2 must_haves, so the
+    // cross-submodule mixup surfaces as KAT_SCHEMA_MISMATCH (not
+    // KAT_UNKNOWN_SUBMODULE_SOURCE, which is reserved for values outside the
+    // known set).
+    const falconDir = path.join(tmpRoot, "falcon-eth");
+    mkdirSync(falconDir, { recursive: true });
+    writeFileSync(
+      path.join(falconDir, "prg-vectors.json"),
+      JSON.stringify({
+        scheme: "falcon-eth",
+        gate: "G1-keccak-prg",
+        submoduleSource: "ethdilithium",
+        submoduleSha: currentEthfalconHead(),
+        generatedAt: "2026-04-19T00:00:00Z",
+        source: {
+          pythonClass: "KeccakPRNG",
+          pythonFile: "x",
+          generator: "y",
+        },
+        vectors: [],
+      }),
+    );
+    process.env["KAT_FIXTURE_DIR"] = tmpRoot;
+
+    const err = captureThrow(() => loadFalconPrgVectors());
+    assert.ok(err instanceof KatFixtureError, "expected KatFixtureError");
+    assert.equal(err.code, "KAT_SCHEMA_MISMATCH");
+    assert.match(err.message, /ethfalcon/);
+    assert.match(err.message, /ethdilithium/);
   });
 });
 

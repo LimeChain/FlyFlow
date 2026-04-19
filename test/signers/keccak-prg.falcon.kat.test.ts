@@ -216,4 +216,97 @@ describe("Keccak-PRG KAT (G1 — AC-2 error-path divergence message shape)", () 
       `missing Story 2-3 reference: ${message}`,
     );
   });
+
+  // -------------------------------------------------------------------------
+  // AC-2 loop-scope test — proves the wrap-throw is PER-EXTRACT and not
+  // hoisted outside the extract loop. A regression that moved the try/catch
+  // outside `for (let i = 0; i < extracts.length; i++)` would still catch
+  // divergence on extract[0] but would lose the `extract[<i>]` label
+  // granularity for later iterations. This test reproduces a divergence on
+  // extract[1] specifically, asserts the label carries index 1, and that
+  // the DD-13 anchors are still appended (proving wrap-throw fires on the
+  // second iteration too).
+  // -------------------------------------------------------------------------
+
+  it("failure on extract[1] (second iteration) carries label index and all AC-2 anchors", () => {
+    // Reuses the `ethfalcon-g1-cross-extract` vector's sequence:
+    //   inject 32 B [0x00..0x1f]; flip; extract(5); extract(27)
+    // The first extract matches the real fixture, so the loop reaches
+    // extract[1] — where we substitute a tampered `expected` that diverges
+    // at index 0 of the second extract's 27-byte output.
+    const prg = createKeccakPrg();
+    prg.inject(
+      hexToBytes(
+        "0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f" as `0x${string}`,
+      ),
+    );
+    prg.flip();
+
+    // First extract — real expected, must NOT throw so the loop advances.
+    const realExtract0Hex = "0x77b7caf29d";
+    const actual0 = prg.extract(5);
+    assertBytesEqualWithDD13(
+      actual0,
+      hexToBytes(realExtract0Hex as `0x${string}`),
+      "G1-keccak-prg ethfalcon-g1-cross-extract extract[0]",
+    );
+
+    // Second extract — tamper index 0 of the real expected to force a
+    // divergence on the SECOND loop iteration, not the first.
+    const realExtract1Hex =
+      "0x0c44ef38344ab0bec3724d4d73fcb0c022b364125a19ff674e1fea";
+    const tampered1 = hexToBytes(realExtract1Hex as `0x${string}`);
+    const original1 = tampered1[0];
+    assert.ok(original1 !== undefined, "tampered1[0] must be defined");
+    tampered1[0] = original1 ^ 0xff;
+
+    const actual1 = prg.extract(27);
+    let thrown: unknown;
+    try {
+      assertBytesEqualWithDD13(
+        actual1,
+        tampered1,
+        "G1-keccak-prg ethfalcon-g1-cross-extract extract[1]",
+      );
+      assert.fail("expected assertBytesEqualWithDD13 to throw on extract[1]");
+    } catch (err) {
+      thrown = err;
+    }
+
+    assert.ok(thrown instanceof Error, "thrown value must be an Error");
+    const message = (thrown as Error).message;
+
+    // The label contains `extract[1]` (NOT `extract[0]`) — proves the
+    // wrap-throw fires within the per-extract loop and carries the correct
+    // index on the second iteration.
+    assert.match(
+      message,
+      /extract\[1\]/,
+      `missing extract[1] label (wrap-throw hoisted outside loop?): ${message}`,
+    );
+    assert.doesNotMatch(
+      message,
+      /extract\[0\]/,
+      `unexpected extract[0] label on extract[1] divergence: ${message}`,
+    );
+    // All AC-2 anchors must still be present — the wrap-throw augmentation
+    // applies to every iteration, not just the first.
+    assert.match(
+      message,
+      /first divergent byte at index 0/,
+      `missing byte-offset: ${message}`,
+    );
+    assert.match(
+      message,
+      /\(factory=keccak-prg\)/,
+      `missing (factory=keccak-prg) discriminant: ${message}`,
+    );
+    assert.match(message, /DD-13/, `missing DD-13 marker: ${message}`);
+    assert.match(
+      message,
+      /falconKeccakXofFactory/,
+      `missing falconKeccakXofFactory marker: ${message}`,
+    );
+    assert.match(message, /2-1/, `missing Story 2-1 reference: ${message}`);
+  });
 });
