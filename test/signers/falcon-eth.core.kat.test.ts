@@ -48,6 +48,49 @@ import { hexToBytes } from "viem";
 import { loadHashToPointVectors } from "../fixtures/kat/index.js";
 import { hashToPointEVM } from "./falcon-eth.core.js";
 
+/**
+ * Shared failure-message template for G2 coefficient divergence.
+ *
+ * Single source of truth for the divergence-message shape required by AC-2
+ * (must_haves truth #5). Consumed by BOTH the real per-vector comparison
+ * loop AND the synthetic AC-2 divergence-shape test — any edit to the
+ * template touches both call sites, eliminating the drift risk flagged
+ * by Story 2-2 code-review finding #1.
+ *
+ * Required substring anchors (asserted by the AC-2 synthetic test):
+ *   (a) "first divergent coefficient at index"
+ *   (b) the numeric index K
+ *   (c) "actual [start..end):" and "expected [start..end):" context slices
+ *   (d) "check chunk endianness"
+ *   (e) "61445" (KQ threshold)
+ *   (f) "mod-q" (reduction order hint)
+ */
+function formatG2DivergenceMessage(
+  vectorId: string,
+  k: number,
+  actual: Uint16Array,
+  expected: readonly number[],
+): string {
+  const start = Math.max(0, k - 4);
+  const end = Math.min(expected.length, k + 5);
+  const ctxActual = Array.from(actual.slice(start, end));
+  const ctxExpected = expected.slice(start, end);
+  return (
+    `${vectorId}: first divergent coefficient at index ${k}\n` +
+    `  actual   [${start}..${end}): ${JSON.stringify(ctxActual)}\n` +
+    `  expected [${start}..${end}): ${JSON.stringify(ctxExpected)}\n` +
+    `\n` +
+    `  G2 divergence — debug checklist (AC-2):\n` +
+    `    - check chunk endianness (big-endian, high bits first: ` +
+    `(buffer[2k]<<8)|buffer[2k+1])\n` +
+    `    - check rejection threshold kq=61445 (NOT 61440 — off-by-5 is silent)\n` +
+    `    - check mod-q reduction applied AFTER the rejection check, q=12289\n` +
+    `    - check absorb order: state = keccak256(salt‖msg), NOT keccak256(msg‖salt)\n` +
+    `    - check coefficient-order: first accepted chunk → output[0], not output[511]\n` +
+    `    - check counter endianness: big-endian uint64 at bytes 32..40 of extendedState\n`
+  );
+}
+
 describe("HashToPoint KAT (G2 — byte-identity against pinned ETHFALCON ZKNOX_HashToPoint.sol)", () => {
   // Pre-loop AC-3 invariant test — asserts length and coefficient bound
   // across every vector in a single `it`. Runs BEFORE the per-vector
@@ -103,24 +146,7 @@ describe("HashToPoint KAT (G2 — byte-identity against pinned ETHFALCON ZKNOX_H
       // endianness", (e) literal "61445", (f) literal "mod-q".
       for (let k = 0; k < expected.length; k++) {
         if (actual[k] !== expected[k]) {
-          const start = Math.max(0, k - 4);
-          const end = Math.min(expected.length, k + 5);
-          const ctxActual = Array.from(actual.slice(start, end));
-          const ctxExpected = expected.slice(start, end);
-          assert.fail(
-            `${vector.id}: first divergent coefficient at index ${k}\n` +
-              `  actual   [${start}..${end}): ${JSON.stringify(ctxActual)}\n` +
-              `  expected [${start}..${end}): ${JSON.stringify(ctxExpected)}\n` +
-              `\n` +
-              `  G2 divergence — debug checklist (AC-2):\n` +
-              `    - check chunk endianness (big-endian, high bits first: ` +
-              `(buffer[2k]<<8)|buffer[2k+1])\n` +
-              `    - check rejection threshold kq=61445 (NOT 61440 — off-by-5 is silent)\n` +
-              `    - check mod-q reduction applied AFTER the rejection check, q=12289\n` +
-              `    - check absorb order: state = keccak256(salt‖msg), NOT keccak256(msg‖salt)\n` +
-              `    - check coefficient-order: first accepted chunk → output[0], not output[511]\n` +
-              `    - check counter endianness: big-endian uint64 at bytes 32..40 of extendedState\n`,
-          );
+          assert.fail(formatG2DivergenceMessage(vector.id, k, actual, expected));
         }
       }
     });
@@ -178,35 +204,29 @@ describe("HashToPoint KAT (G2 — AC-2 error-path divergence message shape)", ()
     tampered[flipIndex] = (original + 1) % 12289;
 
     // Replay the comparison loop verbatim against the tampered expected.
+    // Uses the same shared helper `formatG2DivergenceMessage` the real
+    // per-vector loop uses, so an edit to the message template touches
+    // this synthetic test automatically.
     let thrown: unknown;
     try {
       for (let k = 0; k < tampered.length; k++) {
         if (actual[k] !== tampered[k]) {
-          const start = Math.max(0, k - 4);
-          const end = Math.min(tampered.length, k + 5);
-          const ctxActual = Array.from(actual.slice(start, end));
-          const ctxExpected = tampered.slice(start, end);
-          assert.fail(
-            `${vector.id}: first divergent coefficient at index ${k}\n` +
-              `  actual   [${start}..${end}): ${JSON.stringify(ctxActual)}\n` +
-              `  expected [${start}..${end}): ${JSON.stringify(ctxExpected)}\n` +
-              `\n` +
-              `  G2 divergence — debug checklist (AC-2):\n` +
-              `    - check chunk endianness (big-endian, high bits first: ` +
-              `(buffer[2k]<<8)|buffer[2k+1])\n` +
-              `    - check rejection threshold kq=61445 (NOT 61440 — off-by-5 is silent)\n` +
-              `    - check mod-q reduction applied AFTER the rejection check, q=12289\n` +
-              `    - check absorb order: state = keccak256(salt‖msg), NOT keccak256(msg‖salt)\n` +
-              `    - check coefficient-order: first accepted chunk → output[0], not output[511]\n` +
-              `    - check counter endianness: big-endian uint64 at bytes 32..40 of extendedState\n`,
-          );
+          assert.fail(formatG2DivergenceMessage(vector.id, k, actual, tampered));
         }
       }
-      assert.fail("expected comparison loop to throw on synthetic divergence");
     } catch (err) {
       thrown = err;
     }
 
+    // Guard OUTSIDE the try block — the inner loop's `assert.fail` is also
+    // an Error that the catch swallows; if the loop never threw (flipIndex
+    // somehow failed to produce a divergence), the `thrown === undefined`
+    // sentinel surfaces that condition through the test runner directly
+    // rather than being shadowed by a caught assertion.
+    assert.ok(
+      thrown !== undefined,
+      "expected comparison loop to throw on synthetic divergence",
+    );
     assert.ok(thrown instanceof Error, "thrown value must be an Error");
     const message = (thrown as Error).message;
 
