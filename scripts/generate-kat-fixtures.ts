@@ -129,6 +129,7 @@ const RSP_PATH = path.join(
 const FIXTURE_DIR = path.join(REPO_ROOT, "test", "fixtures", "kat");
 const ML_DSA_FIXTURE = path.join(FIXTURE_DIR, "mldsa-eth", "vectors.json");
 const PRG_FIXTURE = path.join(FIXTURE_DIR, "keccak-prg", "vectors.json");
+const FALCON_FIXTURE = path.join(FIXTURE_DIR, "falcon-eth", "vectors.json");
 
 /**
  * ETHFALCON KAT .rsp path — consumed by Story 1-1 T0 (PRE_G4_DRBG_PROBE) and
@@ -1131,6 +1132,454 @@ export function preG4DrbgProbe(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Story 1-1 Task T1 — .rsp transcription + Python batch for reshapedPublicKey
+//   + signature transform (salt‖s2_compact).
+//
+// Parses ETHFALCON/test/ethfalcon512-KAT.rsp into 100 records, derives the
+// 1064-byte on-chain signature from the `.rsp` `sm` per docs/amendments.md
+// §A-002, and spawns ONE python3 batch that maps each `pk` through the
+// ETHFALCON pythonref transforms (PublicKey.from_bytes → Poly.ntt →
+// falcon_compact → abi.encode('uint256[32]')) for reshapedPublicKey and
+// (decompress → falcon_compact → pack BE) for the s2_compact body of
+// each 1064 B signature. Writes test/fixtures/kat/falcon-eth/vectors.json
+// with canonical serialization (stable key order, 2-space indent, \n, hex
+// lowercase, generatedAt = submodule commit author date).
+// ---------------------------------------------------------------------------
+
+/**
+ * One full ETHFALCON .rsp record. Same shape as {@link RspRecord} but parsed
+ * from the falcon-eth corpus — kept as a distinct local interface to avoid
+ * coupling the Falcon branch to mldsa-eth's parser (the format is the same
+ * NIST KAT layout today but the two sources are free to diverge upstream).
+ */
+interface FalconRspRecord {
+  count: number;
+  seed: string; // 48 B hex (lowercase)
+  mlen: number;
+  msg: string;
+  pk: string; // 897 B hex (lowercase)
+  sk: string;
+  sm: string;
+}
+
+/**
+ * Parse the full ETHFALCON `.rsp` file into 100 records. Honors the same
+ * test-only `KAT_ETHFALCON_RSP_PATH` override used by `parseEthfalconRspVec0`
+ * (sentinel + regex validated in `ethfalconRspPath()`).
+ */
+function parseEthfalconRspFile(): FalconRspRecord[] {
+  const rspPath = ethfalconRspPath();
+  if (!existsSync(rspPath)) {
+    throw new FixtureGenError(
+      `ETHFALCON .rsp not found at ${rspPath}. ` +
+        `Initialize submodules with: git submodule update --init --recursive`,
+      "PRE_G4_DRBG_PROBE_FAILED",
+    );
+  }
+  const raw = readFileSync(rspPath, "utf8");
+  const records: FalconRspRecord[] = [];
+  let current: Partial<FalconRspRecord> = {};
+
+  for (const rawLine of raw.split("\n")) {
+    const line = rawLine.trim();
+    if (line === "" || line.startsWith("#")) {
+      if (current.count !== undefined) {
+        records.push(finalizeFalconRecord(current));
+        current = {};
+      }
+      continue;
+    }
+    const eq = line.indexOf("=");
+    if (eq < 0) continue;
+    const key = line.slice(0, eq).trim();
+    const value = line.slice(eq + 1).trim();
+    switch (key) {
+      case "count":
+        current.count = Number.parseInt(value, 10);
+        break;
+      case "seed":
+        current.seed = value.toLowerCase();
+        break;
+      case "mlen":
+        current.mlen = Number.parseInt(value, 10);
+        break;
+      case "msg":
+        current.msg = value.toLowerCase();
+        break;
+      case "pk":
+        current.pk = value.toLowerCase();
+        break;
+      case "sk":
+        current.sk = value.toLowerCase();
+        break;
+      case "sm":
+        current.sm = value.toLowerCase();
+        break;
+      // `smlen` is redundant — derivable from `sm` hex length.
+      default:
+        break;
+    }
+  }
+  if (current.count !== undefined) {
+    records.push(finalizeFalconRecord(current));
+  }
+  return records;
+}
+
+function finalizeFalconRecord(r: Partial<FalconRspRecord>): FalconRspRecord {
+  for (const field of [
+    "count",
+    "seed",
+    "mlen",
+    "msg",
+    "pk",
+    "sk",
+    "sm",
+  ] as const) {
+    if (r[field] === undefined) {
+      throw new Error(
+        `Malformed ETHFALCON .rsp record (count=${String(r.count)}): missing '${field}'`,
+      );
+    }
+  }
+  return r as FalconRspRecord;
+}
+
+/**
+ * Python batch for the falcon-eth fixture. Reads one JSON payload from stdin
+ * shaped `{vectors: [{count, pk_hex, sm_hex, mlen}, ...]}` and writes 100
+ * NDJSON lines to stdout: `{count, reshapedPublicKey, signature}` where:
+ *   - `reshapedPublicKey` = `abi.encode(['uint256[32]'],
+ *       [falcon_compact(Poly(PublicKey.from_bytes(pk).pk, q).ntt())])`
+ *     — exactly 1024 B (no length prefix; fixed-size array).
+ *   - `signature` = `salt(40) || s2_compact_packed(1024)` where
+ *     `s2_compact_packed = b''.join(int.to_bytes(x, 32, 'big') for x in
+ *      falcon_compact(decompress(esig[1:], 625, 512) mod q))` — exactly
+ *     1064 B. Mirrors `ZKNOX_common.sol::_packSignature` (`salt || s2`).
+ *
+ * NFR-3: Python source is passed as a `-c` string — no `.py` file shipped.
+ * NFR-9: no operator-controllable env-var values are interpolated into the
+ * program source; all dynamic data flows via stdin JSON.
+ */
+const FALCON_BATCH_PY = `
+import json
+import sys
+sys.path.insert(0, "ETHFALCON/pythonref")
+
+from falcon import PublicKey, HEAD_LEN, SALT_LEN, decompress
+from common import falcon_compact, q
+from polyntt.poly import Poly
+from eth_abi import encode as abi_encode
+
+# Falcon-512 signature byte length (from ETHFALCON Params[512]["sig_bytelen"]).
+SIG_BYTELEN_512 = 666
+N = 512
+
+payload = json.loads(sys.stdin.read())
+for rec in payload["vectors"]:
+    count = rec["count"]
+    pk_bytes = bytes.fromhex(rec["pk_hex"])
+    sm_bytes = bytes.fromhex(rec["sm_hex"])
+    mlen = rec["mlen"]
+
+    # --- reshapedPublicKey: abi.encode(['uint256[32]'], [pk_compact]) ---
+    pk_obj = PublicKey.from_bytes(pk_bytes)
+    pk_ntt = Poly(pk_obj.pk, q).ntt()
+    pk_compact = falcon_compact(pk_ntt)
+    if len(pk_compact) != 32:
+        raise RuntimeError(
+            "pk_compact length %d != 32 for count=%d" % (len(pk_compact), count)
+        )
+    reshaped_pk = abi_encode(["uint256[32]"], [pk_compact])
+    if len(reshaped_pk) != 1024:
+        raise RuntimeError(
+            "reshaped_pk length %d != 1024 for count=%d" % (len(reshaped_pk), count)
+        )
+
+    # --- signature: salt(40) || s2_compact(1024) ---
+    # .rsp sm layout (docs/amendments.md §A-002):
+    #   slen(2) || salt(40) || msg(mlen) || header(1=0x29) || esig(sig_len-1)
+    # sig_len is stored in sm[0..2] BE; it counts from the 0x29 header.
+    sig_len = (sm_bytes[0] << 8) | sm_bytes[1]
+    salt = sm_bytes[2:42]
+    msg_in_sm = sm_bytes[42 : 42 + mlen]
+    esig = sm_bytes[42 + mlen : 42 + mlen + sig_len]
+    enc_s = esig[1:]  # strip 1-byte esig header (HEAD_LEN=1)
+
+    decompress_target = SIG_BYTELEN_512 - HEAD_LEN - SALT_LEN  # 625
+    s2 = decompress(enc_s, decompress_target, N)
+    s2 = [elt % q for elt in s2]
+    s2_compact = falcon_compact(s2)
+    if len(s2_compact) != 32:
+        raise RuntimeError(
+            "s2_compact length %d != 32 for count=%d" % (len(s2_compact), count)
+        )
+    s2_packed = b"".join(int(x).to_bytes(32, "big") for x in s2_compact)
+    if len(s2_packed) != 1024:
+        raise RuntimeError(
+            "s2_packed length %d != 1024 for count=%d" % (len(s2_packed), count)
+        )
+    sig_bytes = salt + s2_packed
+    if len(sig_bytes) != 1064:
+        raise RuntimeError(
+            "sig_bytes length %d != 1064 for count=%d" % (len(sig_bytes), count)
+        )
+
+    sys.stdout.write(
+        json.dumps(
+            {
+                "count": count,
+                "reshapedPublicKey": reshaped_pk.hex(),
+                "signature": sig_bytes.hex(),
+            }
+        )
+        + "\\n"
+    )
+sys.stdout.flush()
+`;
+
+interface PythonFalconResult {
+  count: number;
+  reshapedPublicKey: string;
+  signature: string;
+}
+
+/**
+ * One falcon-eth KAT vector (local mirror of the {@link FalconKatVector}
+ * interface that T4 will add to `test/fixtures/kat/index.ts`). Kept here
+ * as a structural type so T1 can land without the loader-side refactor.
+ * Matches the schema in docs/stories/1-1.md §"Architecture Guardrails"
+ * §"Fixture schema — falcon-eth vectors.json".
+ */
+interface FalconKatVectorLocal {
+  id: string;
+  drbgSeed: `0x${string}`;
+  publicKey: `0x${string}`;
+  secretKey: `0x${string}`;
+  reshapedPublicKey: `0x${string}`;
+  message: `0x${string}`;
+  signature: `0x${string}`;
+}
+
+/**
+ * Top-level shape of test/fixtures/kat/falcon-eth/vectors.json. Includes
+ * `submoduleSource: "ethfalcon"` — the discriminator the T4 multi-submodule
+ * loader will key on. Canonical key order is enforced by
+ * {@link serializeFalconKatFixture}.
+ */
+interface FalconKatVectorsFileLocal {
+  scheme: "falcon-eth";
+  params: "falcon-512-keccak";
+  submoduleSource: "ethfalcon";
+  submoduleSha: string;
+  generatedAt: string;
+  source: {
+    rspFile: string;
+    drbgDerivation: string;
+    ctx: "0x";
+  };
+  vectors: FalconKatVectorLocal[];
+}
+
+/**
+ * Read the ETHFALCON submodule's pinned SHA + commit timestamp. Mirrors
+ * {@link readSubmoduleShas} but parameterized for the ETHFALCON submodule
+ * (which hangs off the same two git probes — `git submodule status
+ * ETHFALCON` + `git -C ETHFALCON log ...`). Strips the leading `+`/`-`/`U`/
+ * space status prefix per the existing mldsa-eth pattern.
+ */
+function readEthfalconSubmoduleShas(): SubmoduleShas {
+  const statusLine =
+    git(["submodule", "status", "ETHFALCON"]).split("\n")[0] ?? "";
+  const stripped = statusLine.replace(/^[+\-U ]/, "");
+  const pinnedSha = stripped.split(/\s+/)[0] ?? "";
+
+  const submoduleRoot = path.join(REPO_ROOT, "ETHFALCON");
+  const currentHead = git(["rev-parse", "HEAD"], submoduleRoot);
+
+  const tsStr = git(["log", "-1", "--format=%ct", "HEAD"], submoduleRoot);
+  const commitTimestamp = Number.parseInt(tsStr, 10);
+  if (!Number.isFinite(commitTimestamp)) {
+    throw new Error(
+      `Failed to parse ETHFALCON submodule commit timestamp from 'git log %ct': ${tsStr}`,
+    );
+  }
+  return { pinnedSha, currentHead, commitTimestamp };
+}
+
+/**
+ * Canonical serializer for the falcon-eth fixture. Stable key order per the
+ * schema in docs/stories/1-1.md §"Architecture Guardrails" §"Fixture schema
+ * — falcon-eth vectors.json". 2-space indent, `\n` line endings, trailing
+ * newline.
+ */
+function serializeFalconKatFixture(f: FalconKatVectorsFileLocal): string {
+  const obj: Record<string, unknown> = {
+    scheme: f.scheme,
+    params: f.params,
+    submoduleSource: f.submoduleSource,
+    submoduleSha: f.submoduleSha,
+    generatedAt: f.generatedAt,
+    source: {
+      rspFile: f.source.rspFile,
+      drbgDerivation: f.source.drbgDerivation,
+      ctx: f.source.ctx,
+    },
+    vectors: f.vectors.map((v) => ({
+      id: v.id,
+      drbgSeed: v.drbgSeed,
+      publicKey: v.publicKey,
+      secretKey: v.secretKey,
+      reshapedPublicKey: v.reshapedPublicKey,
+      message: v.message,
+      signature: v.signature,
+    })),
+  };
+  return JSON.stringify(obj, null, 2) + "\n";
+}
+
+/**
+ * Spawn ONE `python3 -c` subprocess with the FALCON_BATCH_PY driver and all
+ * 100 records on stdin. Returns a Map<count, result>. Throws
+ * FixtureGenError on subprocess failure / malformed output.
+ */
+function runFalconPythonBatch(
+  records: readonly FalconRspRecord[],
+): Map<number, PythonFalconResult> {
+  const batchPayload = {
+    vectors: records.map((r) => ({
+      count: r.count,
+      pk_hex: r.pk,
+      sm_hex: r.sm,
+      mlen: r.mlen,
+    })),
+  };
+
+  const pyProc = spawnSync("python3", ["-c", FALCON_BATCH_PY], {
+    cwd: REPO_ROOT,
+    input: JSON.stringify(batchPayload),
+    encoding: "utf8",
+    // 100 vectors × (1024 + 1064) B hex + JSON overhead ~= 450 KB; 64 MB is
+    // generous headroom.
+    maxBuffer: 64 * 1024 * 1024,
+    stdio: ["pipe", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      PYTHONPATH: [
+        path.join(REPO_ROOT, "ETHFALCON", "pythonref"),
+        process.env["PYTHONPATH"] ?? "",
+      ]
+        .filter((p) => p !== "")
+        .join(path.delimiter),
+    },
+  });
+  if (pyProc.status !== 0) {
+    throw new FixtureGenError(
+      `Falcon Python batch failed (exit ${String(pyProc.status)}):\n${pyProc.stderr ?? ""}`,
+      "PRE_G4_DRBG_PROBE_FAILED",
+    );
+  }
+
+  const byCount = new Map<number, PythonFalconResult>();
+  for (const rawLine of pyProc.stdout.split("\n")) {
+    const line = rawLine.trim();
+    if (line === "") continue;
+    const parsed = JSON.parse(line) as PythonFalconResult;
+    byCount.set(parsed.count, parsed);
+  }
+  if (byCount.size !== records.length) {
+    throw new FixtureGenError(
+      `Falcon Python batch returned ${byCount.size} results, expected ${records.length}`,
+      "PRE_G4_DRBG_PROBE_FAILED",
+    );
+  }
+  return byCount;
+}
+
+/**
+ * Story 1-1 Task T1 — bulk transcription + Python batch write. Assumes T0
+ * (PRE_G4_DRBG_PROBE) has already passed in the same process. Writes
+ * test/fixtures/kat/falcon-eth/vectors.json.
+ */
+function writeFalconEthFixture(): void {
+  const records = parseEthfalconRspFile();
+  if (records.length !== 100) {
+    throw new Error(
+      `Expected exactly 100 ETHFALCON .rsp records, got ${records.length}`,
+    );
+  }
+
+  const { currentHead, commitTimestamp } = readEthfalconSubmoduleShas();
+  const submoduleSha = currentHead;
+  const generatedAt = new Date(commitTimestamp * 1000).toISOString();
+
+  const pyByCount = runFalconPythonBatch(records);
+
+  const vectors: FalconKatVectorLocal[] = records.map((r) => {
+    const py = pyByCount.get(r.count);
+    if (py === undefined) {
+      throw new Error(
+        `Falcon Python batch missing result for count=${r.count}`,
+      );
+    }
+    // Structural sanity at write time — lengths are asserted in Python, but
+    // re-verify the hex byte-lengths before landing them in the fixture.
+    if (py.reshapedPublicKey.length !== 2048) {
+      throw new Error(
+        `reshapedPublicKey hex length ${py.reshapedPublicKey.length} != 2048 (1024 B) for count=${r.count}`,
+      );
+    }
+    if (py.signature.length !== 2128) {
+      throw new Error(
+        `signature hex length ${py.signature.length} != 2128 (1064 B) for count=${r.count}`,
+      );
+    }
+    if (r.seed.length !== 96) {
+      throw new Error(
+        `.rsp seed hex length ${r.seed.length} != 96 (48 B) for count=${r.count}`,
+      );
+    }
+    if (r.pk.length !== 1794) {
+      throw new Error(
+        `.rsp pk hex length ${r.pk.length} != 1794 (897 B) for count=${r.count}`,
+      );
+    }
+    const idNum = String(r.count).padStart(3, "0");
+    return {
+      id: `vec-${idNum}`,
+      drbgSeed: `0x${r.seed}`,
+      publicKey: `0x${r.pk}`,
+      secretKey: `0x${r.sk}`,
+      reshapedPublicKey: `0x${py.reshapedPublicKey}`,
+      message: `0x${r.msg}`,
+      signature: `0x${py.signature}`,
+    };
+  });
+
+  const fixture: FalconKatVectorsFileLocal = {
+    scheme: "falcon-eth",
+    params: "falcon-512-keccak",
+    submoduleSource: "ethfalcon",
+    submoduleSha,
+    generatedAt,
+    source: {
+      rspFile: "ETHFALCON/test/ethfalcon512-KAT.rsp",
+      drbgDerivation:
+        "AES256_CTR_DRBG(drbgSeed).random_bytes(N) — N determined by PRE_G4_DRBG_PROBE",
+      ctx: "0x",
+    },
+    vectors,
+  };
+
+  mkdirSync(path.dirname(FALCON_FIXTURE), { recursive: true });
+  writeFileSync(FALCON_FIXTURE, serializeFalconKatFixture(fixture), "utf8");
+
+  process.stdout.write(
+    `Wrote ${vectors.length} falcon-eth KAT vectors → ${path.relative(REPO_ROOT, FALCON_FIXTURE)}\n`,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Git helpers — pin-read plumbing (AC-1-4's Task 4 finalization hooks here)
 // ---------------------------------------------------------------------------
 
@@ -1603,13 +2052,15 @@ function parseSchemeArg(argv: readonly string[]): Scheme | "invalid" {
 }
 
 /**
- * Story 1-1 Task T0 CLI branch. Runs:
+ * Story 1-1 Task T0 + T1 CLI branch. Runs:
  *   (1) ETHFALCON preflight diagnostics (submodule init, pin, python, deps);
- *   (2) PRE_G4_DRBG_PROBE on vec 0;
- *   (3) exits 0 with a "T1 bulk write not yet implemented" notice.
+ *   (2) PRE_G4_DRBG_PROBE on vec 0 (A-005 audit gate);
+ *   (3) T1 bulk transcription — parse all 100 .rsp records, run the single
+ *       Python batch to derive reshapedPublicKey + signature, write
+ *       test/fixtures/kat/falcon-eth/vectors.json.
  *
- * T1 and T2 will replace the early exit with the full vectors.json +
- * hashtopoint-vectors.json write path.
+ * T2 (hashtopoint-vectors.json via Hardhat-deployed ZKNOX_HashToPointExposed)
+ * lands in a subsequent commit.
  */
 function mainFalconEth(): number {
   if (!runEthfalconPreflightDiagnostics()) {
@@ -1617,6 +2068,7 @@ function mainFalconEth(): number {
   }
   try {
     preG4DrbgProbe();
+    writeFalconEthFixture();
   } catch (err) {
     if (err instanceof FixtureGenError) {
       process.stderr.write(
@@ -1628,14 +2080,11 @@ function mainFalconEth(): number {
     process.stderr.write(
       JSON.stringify({
         code: "PRE_G4_DRBG_PROBE_FAILED",
-        message: `Unexpected probe error: ${message}`,
+        message: `Unexpected falcon-eth generation error: ${message}`,
       }) + "\n",
     );
     return 1;
   }
-  process.stdout.write(
-    "T0 PRE_G4_DRBG_PROBE passed; T1 bulk write not yet implemented — exiting\n",
-  );
   return 0;
 }
 
