@@ -106,10 +106,26 @@ function regenerateCommandFor(scheme: "mldsa-eth" | "falcon-eth"): string {
 // Type schemas — mirror DD-7 (ML-DSA KAT) + falcon-eth Story 1-1 schemas.
 // ---------------------------------------------------------------------------
 
-/** One PRG KAT vector (DD-11). */
+/**
+ * One PRG KAT vector (DD-11).
+ *
+ * The `source` union is additively extended for multi-submodule capture:
+ *   - `"zhenfei-canonical"` — Layer-1 ZKNox Forge test hex literals
+ *     (ETHDILITHIUM-era).
+ *   - `"python-ref-extended"` — Layer-2 ETHDILITHIUM Python ref generator
+ *     (cross-extract, multi-inject, empty-seed, ML-DSA-shape).
+ *   - `"ethfalcon-python-ref"` — falcon-eth Story 1-2 G1 capture from
+ *     `ETHFALCON/pythonref/keccak_prng.py::KeccakPRNG` (0-arg class).
+ *
+ * All three share the same `PrgVector` shape — the extension is purely a
+ * provenance-discriminator string. Existing ETHDILITHIUM fixture data (which
+ * uses the first two values) is unaffected; `loadPrgVectors()` (mldsa-eth)
+ * and `loadFalconPrgVectors()` (falcon-eth) both return `PrgVector[]` and
+ * rely on the loader-level `submoduleSource` discriminator for SHA probing.
+ */
 export interface PrgVector {
   id: string;
-  source: "zhenfei-canonical" | "python-ref-extended";
+  source: "zhenfei-canonical" | "python-ref-extended" | "ethfalcon-python-ref";
   /** Bytes absorbed (in order) before `flip()`, each `"0x..."` hex. */
   injects: string[];
   /** One entry per `extract(N)` call in sequence — byte-count per call. */
@@ -634,6 +650,101 @@ export function loadHashToPointVectors(): HashToPointVector[] {
     );
   }
   return vectors as HashToPointVector[];
+}
+
+/**
+ * Load the falcon-eth G1 Keccak-PRG KAT fixture (Story 1-2 / DD-13 LOCKED).
+ *
+ * Probes the ETHFALCON submodule (not ETHDILITHIUM) via per-submodule SHA
+ * machinery Story 1-1 landed — the G1 corpus is captured from
+ * `ETHFALCON/pythonref/keccak_prng.py::KeccakPRNG` (0-arg class per
+ * `docs/amendments.md` §A-004), so SHA-drift must be detected against the
+ * ETHFALCON pin, not the ETHDILITHIUM pin.
+ *
+ * Shape-parallel to {@link loadPrgVectors}, differing only in:
+ *   - submodule probe target (`ethfalcon` not `ethdilithium`)
+ *   - fixture path (`falcon-eth/prg-vectors.json` not
+ *     `keccak-prg/vectors.json`)
+ *   - schema: the G1 fixture carries the Story 1-1 multi-submodule
+ *     `submoduleSource` discriminator (required-field-enforced here;
+ *     `loadPrgVectors` is legacy mldsa-eth-scoped and does not require it).
+ *
+ * Throws `KatFixtureError` with:
+ *   - `KAT_FIXTURE_MISSING` if the fixture file does not exist (message
+ *     includes the `npm run kat:regen -- --scheme falcon-eth --target prg`
+ *     regeneration command).
+ *   - `KAT_SCHEMA_MISMATCH` if required top-level keys are absent or
+ *     `submoduleSource` is missing / wrong type.
+ *   - `KAT_UNKNOWN_SUBMODULE_SOURCE` if `submoduleSource` is outside the
+ *     known set `{"ethdilithium", "ethfalcon"}`.
+ *   - `KAT_SUBMODULE_SHA_MISMATCH` if the pinned ETHFALCON SHA differs from
+ *     current ETHFALCON HEAD, OR if the fixture's embedded `submoduleSha`
+ *     differs from current ETHFALCON HEAD. Message names both SHAs and the
+ *     regeneration command.
+ *
+ * This loader ALSO rejects fixtures declaring a non-ethfalcon
+ * `submoduleSource` (e.g., `"ethdilithium"`) with `KAT_SCHEMA_MISMATCH` —
+ * the G1 loader is tightly scoped to ETHFALCON-sourced corpora per Story 1-2
+ * must_haves. Cross-submodule fixture mixup is a schema error, not an
+ * unknown-enum-value error.
+ */
+export function loadFalconPrgVectors(): PrgVector[] {
+  // Per-submodule SHA probe — ETHFALCON is the upstream for the G1 corpus.
+  assertSubmoduleShaMatches("ethfalcon");
+  const fixturePath = path.join(
+    fixtureDir(),
+    "falcon-eth",
+    "prg-vectors.json",
+  );
+  const parsed = readJsonFile(fixturePath);
+
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new KatFixtureError(
+      `KAT fixture at ${fixturePath} must be a JSON object`,
+      "KAT_SCHEMA_MISMATCH",
+    );
+  }
+  const obj = parsed as Record<string, unknown>;
+  for (const key of [
+    "scheme",
+    "gate",
+    "submoduleSource",
+    "submoduleSha",
+    "generatedAt",
+    "source",
+    "vectors",
+  ]) {
+    assertTopLevelKey(obj, key, fixturePath);
+  }
+
+  // Validate the discriminator (throws KAT_SCHEMA_MISMATCH for missing/wrong
+  // type; KAT_UNKNOWN_SUBMODULE_SOURCE for outside the known set).
+  const submoduleSource = readSubmoduleSource(obj, fixturePath);
+  if (submoduleSource !== "ethfalcon") {
+    throw new KatFixtureError(
+      `KAT fixture at ${fixturePath}: 'submoduleSource' must be 'ethfalcon' ` +
+        `for the G1 falcon-eth PRG loader, got ${JSON.stringify(submoduleSource)}`,
+      "KAT_SCHEMA_MISMATCH",
+    );
+  }
+
+  const submoduleSha = obj["submoduleSha"];
+  if (typeof submoduleSha !== "string") {
+    throw new KatFixtureError(
+      `KAT fixture at ${fixturePath}: 'submoduleSha' must be a string`,
+      "KAT_SCHEMA_MISMATCH",
+    );
+  }
+  assertFixtureShaMatches(submoduleSha, "ethfalcon", fixturePath);
+
+  const vectors = obj["vectors"];
+  if (!Array.isArray(vectors)) {
+    throw new KatFixtureError(
+      `KAT fixture at ${fixturePath}: 'vectors' must be an array`,
+      "KAT_SCHEMA_MISMATCH",
+    );
+  }
+  return vectors as PrgVector[];
 }
 
 // ---------------------------------------------------------------------------
