@@ -7,16 +7,20 @@ epics:
         slug: falcon-eth-fixtures
         title: ".rsp transcription + Hardhat-generated HashToPoint fixtures + multi-submodule loader"
         size: M
-        status: backlog
+        status: done
         wave: 1
         dependencies: []
+        gate5: pass
+        completedAt: "2026-04-19T20:55:00Z"
       - id: "1-2"
         slug: keccak-prg-verification
         title: "G1 Keccak-CTR-PRNG byte-identity vs ETHFALCON Keccak256PRNG"
         size: S-M
-        status: backlog
+        status: done
         wave: 2
         dependencies: ["1-1"]
+        gate5: pass
+        completedAt: "2026-04-19T22:15:00Z"
 
   - id: 2
     name: TS Port + Signer + Integration
@@ -32,9 +36,11 @@ epics:
         slug: hashtopoint-port
         title: "HashToPoint standalone port → G2 PASS"
         size: S
-        status: backlog
+        status: done
         wave: 2
         dependencies: ["1-1"]
+        gate5: pass
+        completedAt: "2026-04-20T09:00:00Z"
       - id: "2-3"
         slug: signer-port
         title: "Falcon-ETH signer port + ffSampling → G4 PASS"
