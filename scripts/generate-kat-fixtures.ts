@@ -2282,6 +2282,7 @@ function serializeKatFixture(f: MlDsaEthKatVectorsFile): string {
   const obj: Record<string, unknown> = {
     scheme: f.scheme,
     params: f.params,
+    submoduleSource: f.submoduleSource,
     submoduleSha: f.submoduleSha,
     generatedAt: f.generatedAt,
     source: {
@@ -2595,6 +2596,7 @@ async function main(): Promise<number> {
   const katFixture: MlDsaEthKatVectorsFile = {
     scheme: "mldsa-eth",
     params: "dilithium2-keccak",
+    submoduleSource: "ethdilithium",
     submoduleSha,
     generatedAt,
     source: {

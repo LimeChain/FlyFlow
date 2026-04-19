@@ -1,33 +1,47 @@
 /**
- * KAT fixture loader + error class + SHA-drift guard (Story 1, Task 2).
+ * KAT fixture loader + error class + multi-submodule SHA-drift guard.
  *
- * Enforces AC-1-8: importing this module when the committed `submoduleSha`
- * in either fixture file differs from the current ETHDILITHIUM submodule
- * HEAD throws `KatFixtureError` with `code: "KAT_SUBMODULE_SHA_MISMATCH"`
- * at module-evaluation time (not lazily inside loader calls).
+ * Originally landed by mldsa-eth Story 1 Task 2 with a single `ETHDILITHIUM`
+ * pin. Extended by falcon-eth Story 1-1 Task T4 into a multi-submodule-aware
+ * loader: fixtures embed a `submoduleSource` discriminator
+ * (`"ethdilithium" | "ethfalcon"`), and the loader probes the matching
+ * submodule's HEAD rather than hardcoding one.
  *
- * Downstream consumers (Stories 2-5) import only the named loaders:
- *   import { loadPrgVectors, loadKatVectors } from "../fixtures/kat/index.js";
+ * Enforces AC-1-8 (mldsa-eth) and AC-4/AC-5/AC-6 (falcon-eth Story 1-1):
+ *   - import-time SHA-guard for ETHDILITHIUM (mldsa-eth fixture is always
+ *     present in this repo; the import-time probe preserves the mldsa-eth
+ *     A-001-era loud-fail posture).
+ *   - per-call SHA-guard for whichever submodule the fixture declares
+ *     via `submoduleSource` (AC-5).
+ *   - schema rejection of fixtures missing `submoduleSource` (AC-4 part 1,
+ *     `KAT_SCHEMA_MISMATCH`).
+ *   - schema rejection of fixtures declaring an unknown `submoduleSource`
+ *     (AC-4 part 2, `KAT_UNKNOWN_SUBMODULE_SOURCE`).
+ *   - discriminated TypeScript overload on `loadKatVectors` so cross-scheme
+ *     field access fails at `tsc` (AC-6).
+ *
+ * Downstream consumers (Stories 2-*) import only the named loaders:
+ *   import { loadKatVectors, loadHashToPointVectors, loadPrgVectors }
+ *     from "../fixtures/kat/index.js";
  *
  * SHA-guard mechanism (per architecture §"KAT loader"):
- *   - pinned SHA:  `git submodule status ETHDILITHIUM | awk '{print $1}'`
- *     (strip leading `+`/`-` status prefix) — the pin recorded in the
- *     parent tree's gitlink.
- *   - current HEAD: `git -C ETHDILITHIUM rev-parse HEAD`.
- *   Commands are executed via `execFileSync` (argv form — no shell) from
- *   the repository root. Result is cached in a module-level `let` so the
- *   probe runs once per process regardless of how many fixture files are
- *   loaded. The top-level `assertSubmoduleShaMatches()` call below runs
- *   at import time.
+ *   - pinned SHA:  `git submodule status <SUBMODULE> | awk '{print $1}'`
+ *     (strip leading `+`/`-`/`U`/space status prefix).
+ *   - current HEAD: `git -C <SUBMODULE> rev-parse HEAD`.
+ *   Commands are executed via `execFileSync` (argv form — no shell). Result
+ *   is cached per-submodule in a module-level map so each probe runs at most
+ *   once per submodule per process.
  *
  * Path resolution: fixture JSON files live at paths relative to the repo
- * root (`test/fixtures/kat/...`). We resolve via `import.meta.url` (this
- * file is `test/fixtures/kat/index.ts`, so repo root is three levels up).
+ * root (`test/fixtures/kat/...`). Resolved via `import.meta.url` (this file
+ * is `test/fixtures/kat/index.ts`, so repo root is three levels up).
  *
  * Test-only hook: `process.env.KAT_FIXTURE_DIR`, if set, overrides the
  * fixture directory root. Used by the colocated unit tests to point the
  * loader at a temp directory with synthetic fixtures; production callers
- * never set this.
+ * never set this. This loader-level override is test-harness-trusted per the
+ * story's §"Detected Patterns" conflict-resolution note (distinct trust
+ * model from CLI-side overrides, which are sentinel+regex gated).
  */
 
 import { execFileSync } from "node:child_process";
@@ -39,7 +53,8 @@ export type KatFixtureErrorCode =
   | "KAT_SCHEMA_MISMATCH"
   | "KAT_SUBMODULE_SHA_MISMATCH"
   | "KAT_FIXTURE_MISSING"
-  | "KAT_GIT_PROBE_FAILED";
+  | "KAT_GIT_PROBE_FAILED"
+  | "KAT_UNKNOWN_SUBMODULE_SOURCE";
 
 /**
  * Structured error thrown by the KAT loader. Consumers discriminate on
@@ -61,7 +76,34 @@ export class KatFixtureError extends Error {
 }
 
 // ---------------------------------------------------------------------------
-// Type schemas — mirror DD-7 (ML-DSA KAT) and DD-11 (PRG KAT) from the story.
+// Submodule source — fixture discriminator (AC-4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Submodule providing the upstream reference for a given KAT fixture.
+ * Written into each fixture's top-level `submoduleSource` field; used by the
+ * multi-submodule loader to pick which git submodule to probe for
+ * SHA-drift detection (AC-5).
+ */
+export type SubmoduleSource = "ethdilithium" | "ethfalcon";
+
+const KNOWN_SUBMODULE_SOURCES: readonly SubmoduleSource[] = [
+  "ethdilithium",
+  "ethfalcon",
+] as const;
+
+/** Map submodule-source discriminator to the git-submodule directory name. */
+function submoduleDirName(source: SubmoduleSource): string {
+  return source === "ethdilithium" ? "ETHDILITHIUM" : "ETHFALCON";
+}
+
+/** Map scheme → regeneration command fragment for SHA-mismatch error text. */
+function regenerateCommandFor(scheme: "mldsa-eth" | "falcon-eth"): string {
+  return `npm run kat:regen -- --scheme ${scheme}`;
+}
+
+// ---------------------------------------------------------------------------
+// Type schemas — mirror DD-7 (ML-DSA KAT) + falcon-eth Story 1-1 schemas.
 // ---------------------------------------------------------------------------
 
 /** One PRG KAT vector (DD-11). */
@@ -100,6 +142,39 @@ export interface MlDsaEthKatVector {
   signature: string;
 }
 
+/** One Falcon-ETH KAT vector (falcon-eth Story 1-1 AC-1). */
+export interface FalconKatVector {
+  readonly id: string;
+  /** 48 B — AES256_CTR_DRBG seed from ETHFALCON `.rsp`; audit-replay only. */
+  readonly drbgSeed: `0x${string}`;
+  /** 897 B raw Falcon-512 public key. */
+  readonly publicKey: `0x${string}`;
+  /** Falcon-512 secret key (variable — poly-packed). */
+  readonly secretKey: `0x${string}`;
+  /** `abi.encode(uint256[32])` of the reshaped NTT-domain pk (G5 expected). */
+  readonly reshapedPublicKey: `0x${string}`;
+  /** Variable — signed message (`sm[2+40 : 2+40+mlen]`). */
+  readonly message: `0x${string}`;
+  /** 1064 B = `salt(40) ‖ s2_compact(1024)` (G4 expected — falcon-eth signature is NOT NIST-shaped). */
+  readonly signature: `0x${string}`;
+}
+
+/**
+ * One HashToPoint KAT vector (falcon-eth Story 1-1 AC-2). Generated by
+ * deploying `ZKNOX_HashToPointExposed` on Hardhat and capturing
+ * `compute(salt, msg)` — trust anchor is the pinned ETHFALCON Solidity
+ * `hashToPointEVM` free function (DD-25 Option C).
+ */
+export interface HashToPointVector {
+  readonly id: string;
+  /** 40 B salt. */
+  readonly salt: `0x${string}`;
+  /** Variable-length input message. */
+  readonly message: `0x${string}`;
+  /** 512 uint16 coefficients, each `< 12289` (Falcon q). */
+  readonly expectedHash: readonly number[];
+}
+
 /** Top-level PRG fixture file shape. */
 export interface PrgVectorsFile {
   submoduleSha: string;
@@ -112,6 +187,11 @@ export interface PrgVectorsFile {
 export interface MlDsaEthKatVectorsFile {
   scheme: "mldsa-eth";
   params: "dilithium2-keccak";
+  /**
+   * Discriminator for the multi-submodule loader (falcon-eth Story 1-1 AC-4).
+   * Always `"ethdilithium"` for the mldsa-eth fixture.
+   */
+  submoduleSource: "ethdilithium";
   submoduleSha: string;
   /** ISO 8601 timestamp. */
   generatedAt: string;
@@ -121,6 +201,38 @@ export interface MlDsaEthKatVectorsFile {
     ctx: "0x";
   };
   vectors: MlDsaEthKatVector[];
+}
+
+/** Top-level Falcon-ETH fixture file shape (falcon-eth Story 1-1 T1 schema). */
+export interface FalconKatVectorsFile {
+  readonly scheme: "falcon-eth";
+  readonly params: "falcon-512-keccak";
+  readonly submoduleSource: "ethfalcon";
+  readonly submoduleSha: string;
+  readonly generatedAt: string;
+  readonly source: {
+    readonly rspFile: string;
+    readonly drbgDerivation: string;
+    readonly ctx: "0x";
+  };
+  readonly vectors: readonly FalconKatVector[];
+}
+
+/** Top-level HashToPoint fixture file shape (falcon-eth Story 1-1 T2 schema). */
+export interface HashToPointVectorsFile {
+  readonly scheme: "falcon-eth";
+  readonly gate: "G2-hashtopoint";
+  readonly submoduleSource: "ethfalcon";
+  readonly submoduleSha: string;
+  readonly generatedAt: string;
+  readonly source: {
+    readonly solContract: string;
+    readonly solFile: string;
+    readonly upstreamFile: string;
+    readonly algorithm: string;
+    readonly generator: string;
+  };
+  readonly vectors: readonly HashToPointVector[];
 }
 
 // ---------------------------------------------------------------------------
@@ -143,7 +255,7 @@ function fixtureDir(): string {
 }
 
 // ---------------------------------------------------------------------------
-// Submodule SHA probe (cached)
+// Submodule SHA probe (cached per-submodule)
 // ---------------------------------------------------------------------------
 
 interface ShaProbeResult {
@@ -151,23 +263,40 @@ interface ShaProbeResult {
   currentHead: string;
 }
 
-let cachedProbe: ShaProbeResult | undefined;
+/**
+ * Per-submodule cache of probe results. Keyed by {@link SubmoduleSource} so
+ * that the two submodules are probed independently (and so a mock of one
+ * never leaks to the other in tests).
+ */
+const probeCache = new Map<SubmoduleSource, ShaProbeResult>();
 
-function probeSubmoduleShas(): ShaProbeResult {
-  if (cachedProbe !== undefined) return cachedProbe;
+/**
+ * Run the two-step git probe for the given submodule — current HEAD via
+ * `git -C <submodule> rev-parse HEAD`, pinned SHA via
+ * `git submodule status <submodule>` with the leading status prefix
+ * stripped. Cached per-submodule.
+ *
+ * Exported for direct testing; invoked by {@link assertSubmoduleShaMatches}
+ * and the fixture loaders.
+ */
+export function probeSubmoduleShas(source: SubmoduleSource): ShaProbeResult {
+  const cached = probeCache.get(source);
+  if (cached !== undefined) return cached;
+
+  const dirName = submoduleDirName(source);
 
   // Step 1: current submodule HEAD.
   let currentHead: string;
   try {
     const out = execFileSync(
       "git",
-      ["-C", path.join(REPO_ROOT, "ETHDILITHIUM"), "rev-parse", "HEAD"],
+      ["-C", path.join(REPO_ROOT, dirName), "rev-parse", "HEAD"],
       { cwd: REPO_ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
     );
     currentHead = out.trim();
   } catch (err) {
     throw new KatFixtureError(
-      `Failed to probe ETHDILITHIUM HEAD via 'git -C ETHDILITHIUM rev-parse HEAD'. ` +
+      `Failed to probe ${dirName} HEAD via 'git -C ${dirName} rev-parse HEAD'. ` +
         `Is the submodule initialized? Try: git submodule update --init --recursive`,
       "KAT_GIT_PROBE_FAILED",
       { cause: err },
@@ -175,14 +304,14 @@ function probeSubmoduleShas(): ShaProbeResult {
   }
 
   // Step 2: pinned SHA from parent-tree gitlink (git submodule status).
-  // Output format: " <sha> ETHDILITHIUM (heads/main)" with a leading
-  // status character (space = clean, `+` = HEAD differs, `-` = not init'd,
+  // Output format: " <sha> <name> (heads/main)" with a leading status
+  // character (space = clean, `+` = HEAD differs, `-` = not init'd,
   // `U` = merge conflicts). Strip the status prefix, then take field 1.
   let pinnedSha: string;
   try {
     const out = execFileSync(
       "git",
-      ["submodule", "status", "ETHDILITHIUM"],
+      ["submodule", "status", dirName],
       { cwd: REPO_ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
     );
     const line = out.split("\n")[0] ?? "";
@@ -192,30 +321,37 @@ function probeSubmoduleShas(): ShaProbeResult {
     pinnedSha = first;
   } catch (err) {
     throw new KatFixtureError(
-      `Failed to probe pinned ETHDILITHIUM SHA via 'git submodule status ETHDILITHIUM'.`,
+      `Failed to probe pinned ${dirName} SHA via 'git submodule status ${dirName}'.`,
       "KAT_GIT_PROBE_FAILED",
       { cause: err },
     );
   }
 
-  cachedProbe = { pinnedSha, currentHead };
-  return cachedProbe;
+  const result: ShaProbeResult = { pinnedSha, currentHead };
+  probeCache.set(source, result);
+  return result;
 }
 
 /**
  * Throw `KatFixtureError` with `code: "KAT_SUBMODULE_SHA_MISMATCH"` if the
- * pinned SHA (parent-tree gitlink) differs from current submodule HEAD.
+ * pinned SHA (parent-tree gitlink) differs from current submodule HEAD for
+ * the given source.
  *
  * Exported for direct testing; invoked eagerly at module-evaluation time
- * (bottom of this file) and defensively from each loader.
+ * (bottom of this file) for ETHDILITHIUM and defensively from each loader
+ * for whichever submodule the fixture declares.
  */
-export function assertSubmoduleShaMatches(): void {
-  const { pinnedSha, currentHead } = probeSubmoduleShas();
+export function assertSubmoduleShaMatches(
+  source: SubmoduleSource = "ethdilithium",
+): void {
+  const { pinnedSha, currentHead } = probeSubmoduleShas(source);
   if (pinnedSha !== currentHead) {
+    const dirName = submoduleDirName(source);
+    const scheme = source === "ethdilithium" ? "mldsa-eth" : "falcon-eth";
     throw new KatFixtureError(
-      `Submodule ETHDILITHIUM at ${currentHead} but pinned to ${pinnedSha}. ` +
-        `Re-pin with: git -C ETHDILITHIUM checkout ${pinnedSha}. Then run: ` +
-        `npx tsx scripts/generate-kat-fixtures.ts to regenerate fixtures.`,
+      `Submodule ${dirName} at ${currentHead} but pinned to ${pinnedSha}. ` +
+        `Re-pin with: git -C ${dirName} checkout ${pinnedSha}. Then run: ` +
+        `${regenerateCommandFor(scheme)} to regenerate fixtures.`,
       "KAT_SUBMODULE_SHA_MISMATCH",
     );
   }
@@ -223,21 +359,58 @@ export function assertSubmoduleShaMatches(): void {
 
 /**
  * Compare a fixture file's embedded `submoduleSha` to the current submodule
- * HEAD. Throw on drift.
+ * HEAD for the fixture's declared source. Throw on drift with the matching
+ * regeneration command.
  */
 function assertFixtureShaMatches(
   fixtureSha: string,
+  source: SubmoduleSource,
   fixturePath: string,
 ): void {
-  const { currentHead } = probeSubmoduleShas();
+  const { currentHead } = probeSubmoduleShas(source);
   if (fixtureSha !== currentHead) {
+    const dirName = submoduleDirName(source);
+    const scheme = source === "ethdilithium" ? "mldsa-eth" : "falcon-eth";
     throw new KatFixtureError(
-      `Fixture ${fixturePath} was generated at submodule SHA ${fixtureSha} but ` +
-        `current ETHDILITHIUM HEAD is ${currentHead}. Regenerate with: ` +
-        `npx tsx scripts/generate-kat-fixtures.ts`,
+      `Fixture ${fixturePath} was generated at ${dirName} SHA ${fixtureSha} but ` +
+        `current ${dirName} HEAD is ${currentHead}. Regenerate with: ` +
+        `${regenerateCommandFor(scheme)}`,
       "KAT_SUBMODULE_SHA_MISMATCH",
     );
   }
+}
+
+/**
+ * Validate the fixture's declared `submoduleSource` and return it typed.
+ * Throws `KAT_SCHEMA_MISMATCH` if absent or non-string, and
+ * `KAT_UNKNOWN_SUBMODULE_SOURCE` if the value is outside the known set
+ * (AC-4 part 2).
+ */
+function readSubmoduleSource(
+  obj: Record<string, unknown>,
+  fixturePath: string,
+): SubmoduleSource {
+  const raw = obj["submoduleSource"];
+  if (raw === undefined) {
+    throw new KatFixtureError(
+      `KAT fixture at ${fixturePath} is missing required top-level key 'submoduleSource'`,
+      "KAT_SCHEMA_MISMATCH",
+    );
+  }
+  if (typeof raw !== "string") {
+    throw new KatFixtureError(
+      `KAT fixture at ${fixturePath}: 'submoduleSource' must be a string`,
+      "KAT_SCHEMA_MISMATCH",
+    );
+  }
+  if (!(KNOWN_SUBMODULE_SOURCES as readonly string[]).includes(raw)) {
+    throw new KatFixtureError(
+      `KAT fixture at ${fixturePath}: 'submoduleSource' value ${JSON.stringify(raw)} ` +
+        `is not one of ${JSON.stringify(KNOWN_SUBMODULE_SOURCES)}`,
+      "KAT_UNKNOWN_SUBMODULE_SOURCE",
+    );
+  }
+  return raw as SubmoduleSource;
 }
 
 // ---------------------------------------------------------------------------
@@ -298,7 +471,9 @@ function assertTopLevelKey(
  *     from current submodule HEAD (defensive — also enforced at import time)
  */
 export function loadPrgVectors(): PrgVector[] {
-  assertSubmoduleShaMatches();
+  // PRG fixture is mldsa-eth-scoped (Keccak-PRG is the XOF used by the
+  // mldsa-eth Dilithium2 variant) — probe ETHDILITHIUM.
+  assertSubmoduleShaMatches("ethdilithium");
   const fixturePath = path.join(fixtureDir(), "keccak-prg", "vectors.json");
   const parsed = readJsonFile(fixturePath);
 
@@ -320,7 +495,7 @@ export function loadPrgVectors(): PrgVector[] {
       "KAT_SCHEMA_MISMATCH",
     );
   }
-  assertFixtureShaMatches(submoduleSha, fixturePath);
+  assertFixtureShaMatches(submoduleSha, "ethdilithium", fixturePath);
 
   const vectors = obj["vectors"];
   if (!Array.isArray(vectors)) {
@@ -333,16 +508,28 @@ export function loadPrgVectors(): PrgVector[] {
 }
 
 /**
- * Load the ML-DSA-ETH KAT fixture file (DD-7).
+ * Load a scheme-typed KAT fixture file. Discriminated TypeScript overload:
+ *   - `loadKatVectors("mldsa-eth")` → `MlDsaEthKatVector[]`
+ *   - `loadKatVectors("falcon-eth")` → `FalconKatVector[]`
+ *
+ * Cross-scheme field access (e.g., a Falcon test accessing
+ * `vec.cTilde`, which is ML-DSA-only) fails at `tsc` — this is AC-6.
  *
  * Throws `KatFixtureError` with:
  *   - `KAT_FIXTURE_MISSING` if the file does not exist
- *   - `KAT_SCHEMA_MISMATCH` if required top-level keys are absent
+ *   - `KAT_SCHEMA_MISMATCH` if required top-level keys are absent or
+ *     `submoduleSource` is missing / wrong type
+ *   - `KAT_UNKNOWN_SUBMODULE_SOURCE` if `submoduleSource` is outside the
+ *     known set `{"ethdilithium", "ethfalcon"}`
  *   - `KAT_SUBMODULE_SHA_MISMATCH` if the fixture's embedded SHA differs
- *     from current submodule HEAD (defensive — also enforced at import time)
+ *     from current submodule HEAD (message includes both SHAs and the
+ *     regeneration command)
  */
-export function loadKatVectors(scheme: "mldsa-eth"): MlDsaEthKatVector[] {
-  assertSubmoduleShaMatches();
+export function loadKatVectors(scheme: "mldsa-eth"): MlDsaEthKatVector[];
+export function loadKatVectors(scheme: "falcon-eth"): FalconKatVector[];
+export function loadKatVectors(
+  scheme: "mldsa-eth" | "falcon-eth",
+): MlDsaEthKatVector[] | FalconKatVector[] {
   const fixturePath = path.join(fixtureDir(), scheme, "vectors.json");
   const parsed = readJsonFile(fixturePath);
 
@@ -356,6 +543,7 @@ export function loadKatVectors(scheme: "mldsa-eth"): MlDsaEthKatVector[] {
   for (const key of [
     "scheme",
     "params",
+    "submoduleSource",
     "submoduleSha",
     "generatedAt",
     "source",
@@ -364,6 +552,8 @@ export function loadKatVectors(scheme: "mldsa-eth"): MlDsaEthKatVector[] {
     assertTopLevelKey(obj, key, fixturePath);
   }
 
+  const submoduleSource = readSubmoduleSource(obj, fixturePath);
+
   const submoduleSha = obj["submoduleSha"];
   if (typeof submoduleSha !== "string") {
     throw new KatFixtureError(
@@ -371,7 +561,7 @@ export function loadKatVectors(scheme: "mldsa-eth"): MlDsaEthKatVector[] {
       "KAT_SCHEMA_MISMATCH",
     );
   }
-  assertFixtureShaMatches(submoduleSha, fixturePath);
+  assertFixtureShaMatches(submoduleSha, submoduleSource, fixturePath);
 
   const vectors = obj["vectors"];
   if (!Array.isArray(vectors)) {
@@ -380,12 +570,79 @@ export function loadKatVectors(scheme: "mldsa-eth"): MlDsaEthKatVector[] {
       "KAT_SCHEMA_MISMATCH",
     );
   }
-  return vectors as MlDsaEthKatVector[];
+  // The runtime shape is validated structurally by the caller's test
+  // assertions; the discriminated overload above ensures TypeScript narrows
+  // the return type at the call site.
+  return vectors as MlDsaEthKatVector[] | FalconKatVector[];
+}
+
+/**
+ * Load the HashToPoint KAT fixture file (falcon-eth Story 1-1 AC-2 / DD-25
+ * Option C). Trust anchor is the pinned ETHFALCON `ZKNOX_HashToPoint.sol`.
+ *
+ * Throws `KatFixtureError` with:
+ *   - `KAT_FIXTURE_MISSING` if the file does not exist
+ *   - `KAT_SCHEMA_MISMATCH` if required top-level keys are absent
+ *   - `KAT_UNKNOWN_SUBMODULE_SOURCE` if `submoduleSource` is outside the
+ *     known set
+ *   - `KAT_SUBMODULE_SHA_MISMATCH` if the fixture's embedded SHA differs
+ *     from current ETHFALCON HEAD
+ */
+export function loadHashToPointVectors(): HashToPointVector[] {
+  const fixturePath = path.join(
+    fixtureDir(),
+    "falcon-eth",
+    "hashtopoint-vectors.json",
+  );
+  const parsed = readJsonFile(fixturePath);
+
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new KatFixtureError(
+      `KAT fixture at ${fixturePath} must be a JSON object`,
+      "KAT_SCHEMA_MISMATCH",
+    );
+  }
+  const obj = parsed as Record<string, unknown>;
+  for (const key of [
+    "scheme",
+    "gate",
+    "submoduleSource",
+    "submoduleSha",
+    "generatedAt",
+    "source",
+    "vectors",
+  ]) {
+    assertTopLevelKey(obj, key, fixturePath);
+  }
+
+  const submoduleSource = readSubmoduleSource(obj, fixturePath);
+
+  const submoduleSha = obj["submoduleSha"];
+  if (typeof submoduleSha !== "string") {
+    throw new KatFixtureError(
+      `KAT fixture at ${fixturePath}: 'submoduleSha' must be a string`,
+      "KAT_SCHEMA_MISMATCH",
+    );
+  }
+  assertFixtureShaMatches(submoduleSha, submoduleSource, fixturePath);
+
+  const vectors = obj["vectors"];
+  if (!Array.isArray(vectors)) {
+    throw new KatFixtureError(
+      `KAT fixture at ${fixturePath}: 'vectors' must be an array`,
+      "KAT_SCHEMA_MISMATCH",
+    );
+  }
+  return vectors as HashToPointVector[];
 }
 
 // ---------------------------------------------------------------------------
-// AC-1-8: run SHA guard at module-evaluation time (NOT lazily). Any import
-// of this module — including a dynamic `await import(...)` — invokes this
-// call; drift surfaces as an eager, loud `KatFixtureError` at import time.
+// AC-1-8 (mldsa-eth Story 1) — run ETHDILITHIUM SHA guard at module-evaluation
+// time (NOT lazily). Any import of this module — including a dynamic
+// `await import(...)` — invokes this call; drift surfaces as an eager, loud
+// `KatFixtureError` at import time. Falcon-eth ETHFALCON drift is detected
+// per-loader-call (AC-5) rather than at import time, because a repo that is
+// valid for mldsa-eth consumers must not hard-fail to load simply because a
+// falcon-eth fixture was regenerated under a different ETHFALCON pin.
 // ---------------------------------------------------------------------------
-assertSubmoduleShaMatches();
+assertSubmoduleShaMatches("ethdilithium");
