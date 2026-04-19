@@ -1,0 +1,206 @@
+{
+  "feature": "falcon-eth",
+  "flow": "greenfield",
+  "version": "next-2.0",
+  "created": "2026-04-18T18:46:16.472Z",
+  "lastUpdated": "2026-04-19T17:45:00.000Z",
+  "currentPhase": "implement",
+  "currentStep": null,
+  "currentCheckpoint": null,
+  "complexityTier": "medium",
+  "phases": {
+    "research": {
+      "status": "complete",
+      "startedAt": "2026-04-18T18:46:16.472Z",
+      "completedAt": "2026-04-18T19:07:00.000Z",
+      "gateResult": "pass"
+    },
+    "specify": {
+      "status": "complete",
+      "startedAt": "2026-04-18T19:07:00.000Z",
+      "completedAt": "2026-04-18T19:47:00.000Z",
+      "gateResult": "pass"
+    },
+    "architecture": {
+      "status": "complete",
+      "startedAt": "2026-04-18T19:47:00.000Z",
+      "completedAt": "2026-04-19T17:00:00.000Z",
+      "gateResult": "pass"
+    },
+    "plan": {
+      "status": "complete",
+      "startedAt": "2026-04-19T17:00:00.000Z",
+      "completedAt": "2026-04-19T17:45:00.000Z",
+      "gateResult": "pass"
+    }
+  },
+  "storiesDone": 0,
+  "storiesTotal": 6,
+  "changeStories": [],
+  "currentStory": null,
+  "tooling": {
+    "format": null,
+    "lint": null,
+    "lint_fix": null,
+    "build": "npm run compile",
+    "test": "npx hardhat test",
+    "test_changed": null,
+    "test_report": null,
+    "security": "npm audit",
+    "css_framework": null,
+    "dev_server": null,
+    "dev_port": null,
+    "env_template": null,
+    "accessibility_lint": null
+  },
+  "metrics": {
+    "gates": {
+      "passes": 4,
+      "fails": 0,
+      "overrides": 0,
+      "backNavigations": 0,
+      "blockingFails": 0
+    },
+    "phases": {
+      "research": {
+        "durationMinutes": 21,
+        "revisions": 1,
+        "gateAttempts": 1
+      },
+      "specify": {
+        "durationMinutes": 40,
+        "revisions": 0,
+        "gateAttempts": 1,
+        "personaCount": 3,
+        "personaConcerns": 8
+      },
+      "architecture": {
+        "durationMinutes": 1273,
+        "revisions": 2,
+        "gateAttempts": 1,
+        "deferredDecisions": 0,
+        "resolvedDecisions": 26,
+        "personaCount": 2,
+        "personaConcerns": 4
+      },
+      "plan": {
+        "durationMinutes": 45,
+        "revisions": 0,
+        "gateAttempts": 1,
+        "wavesPlanned": 5
+      }
+    },
+    "stories": {
+      "completed": 0,
+      "skipped": 0,
+      "changeStoriesCreated": 0,
+      "gate5Passes": 0,
+      "gate5Fails": 0,
+      "gate5Overrides": 0,
+      "avgTasksPerStory": 0,
+      "sizeDistribution": {
+        "S": 0,
+        "M": 0,
+        "L": 0
+      }
+    },
+    "tasks": {
+      "totalCompleted": 0,
+      "totalCompletedNoCommit": 0,
+      "totalSkipped": 0,
+      "totalRevisions": 0,
+      "totalVerificationCycles": 0,
+      "firstPassSuccess": 0,
+      "tddCount": 0,
+      "tddTotal": 0,
+      "avgVerificationCycles": 0
+    },
+    "codeReview": {
+      "reviewsRun": 0,
+      "totalFindings": 0,
+      "criticalFindings": 0,
+      "highFindings": 0,
+      "mediumFindings": 0,
+      "lowFindings": 0,
+      "findingsDeferred": 0
+    },
+    "quality": {
+      "interfaceAudits": 0,
+      "interfaceMismatches": 0,
+      "amendments": 0,
+      "concerns": 0,
+      "concernsBySeverity": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+      }
+    },
+    "drift": {
+      "taskDeviations": 0,
+      "storiesResizedDuringImpl": 0
+    },
+    "estimation": {
+      "sizeAccuracy": {
+        "S": {
+          "planned": 0,
+          "avgActualTasks": 0
+        },
+        "M": {
+          "planned": 0,
+          "avgActualTasks": 0
+        },
+        "L": {
+          "planned": 0,
+          "avgActualTasks": 0
+        }
+      }
+    },
+    "execution": {
+      "totalSessions": 1,
+      "pauseResumeCount": 0,
+      "agentTeamsUsed": false,
+      "parallelWaves": 0,
+      "parallelStories": 0,
+      "subagentSpawns": 0
+    },
+    "optionalSkills": {
+      "designer": {
+        "used": false,
+        "mode": null,
+        "completedAt": null
+      },
+      "devopsPass1": {
+        "used": false,
+        "completedAt": null
+      },
+      "devopsPass2": {
+        "used": false,
+        "completedAt": null
+      },
+      "qa": {
+        "used": false,
+        "completedAt": null
+      },
+      "notion": {
+        "used": false,
+        "syncCount": 0,
+        "completedAt": null
+      }
+    },
+    "git": {
+      "totalCommits": 0,
+      "totalFilesChanged": 0,
+      "totalInsertions": 0,
+      "totalDeletions": 0,
+      "testsAdded": 0
+    }
+  },
+  "baselineTests": null,
+  "waveStrategy": {},
+  "devops": {
+    "pass1": "pending",
+    "pass2": "pending",
+    "pass2Partial": false
+  }
+}

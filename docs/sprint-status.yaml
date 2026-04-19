@@ -1,0 +1,51 @@
+feature: falcon-eth
+epics:
+  - id: 1
+    name: Fixtures + Loader foundation
+    stories:
+      - id: "1-1"
+        slug: falcon-eth-fixtures
+        title: ".rsp transcription + Hardhat-generated HashToPoint fixtures + multi-submodule loader"
+        size: M
+        status: backlog
+        wave: 1
+        dependencies: []
+      - id: "1-2"
+        slug: keccak-prg-verification
+        title: "G1 Keccak-CTR-PRNG byte-identity vs ETHFALCON Keccak256PRNG"
+        size: S-M
+        status: backlog
+        wave: 2
+        dependencies: ["1-1"]
+
+  - id: 2
+    name: TS Port + Signer + Integration
+    stories:
+      - id: "2-1"
+        slug: core-and-keygen-port
+        title: "Falcon-ETH core module + keygen port → G3 PASS"
+        size: L
+        status: backlog
+        wave: 3
+        dependencies: ["1-2"]
+      - id: "2-2"
+        slug: hashtopoint-port
+        title: "HashToPoint standalone port → G2 PASS"
+        size: S
+        status: backlog
+        wave: 2
+        dependencies: ["1-1"]
+      - id: "2-3"
+        slug: signer-port
+        title: "Falcon-ETH signer port + ffSampling → G4 PASS"
+        size: L
+        status: backlog
+        wave: 4
+        dependencies: ["2-1", "2-2"]
+      - id: "2-4"
+        slug: integration-benchmark-readme
+        title: "Integration + 5-scheme benchmark + README attribution → G5 + G6 PASS"
+        size: L
+        status: backlog
+        wave: 5
+        dependencies: ["2-3"]
