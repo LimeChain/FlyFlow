@@ -80,7 +80,7 @@ export interface PrgVector {
 }
 
 /** One ML-DSA-ETH KAT vector (DD-7, eight load-bearing fields). */
-export interface KatVector {
+export interface MlDsaEthKatVector {
   id: string;
   /** 48 B hex — audit trail; JS never consumes. */
   drbgSeed: string;
@@ -109,7 +109,7 @@ export interface PrgVectorsFile {
 }
 
 /** Top-level ML-DSA-ETH fixture file shape. */
-export interface KatVectorsFile {
+export interface MlDsaEthKatVectorsFile {
   scheme: "mldsa-eth";
   params: "dilithium2-keccak";
   submoduleSha: string;
@@ -120,7 +120,7 @@ export interface KatVectorsFile {
     drbgDerivation: string;
     ctx: "0x";
   };
-  vectors: KatVector[];
+  vectors: MlDsaEthKatVector[];
 }
 
 // ---------------------------------------------------------------------------
@@ -341,7 +341,7 @@ export function loadPrgVectors(): PrgVector[] {
  *   - `KAT_SUBMODULE_SHA_MISMATCH` if the fixture's embedded SHA differs
  *     from current submodule HEAD (defensive — also enforced at import time)
  */
-export function loadKatVectors(scheme: "mldsa-eth"): KatVector[] {
+export function loadKatVectors(scheme: "mldsa-eth"): MlDsaEthKatVector[] {
   assertSubmoduleShaMatches();
   const fixturePath = path.join(fixtureDir(), scheme, "vectors.json");
   const parsed = readJsonFile(fixturePath);
@@ -380,7 +380,7 @@ export function loadKatVectors(scheme: "mldsa-eth"): KatVector[] {
       "KAT_SCHEMA_MISMATCH",
     );
   }
-  return vectors as KatVector[];
+  return vectors as MlDsaEthKatVector[];
 }
 
 // ---------------------------------------------------------------------------

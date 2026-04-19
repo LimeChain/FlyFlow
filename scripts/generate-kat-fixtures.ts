@@ -95,8 +95,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type {
-  KatVector,
-  KatVectorsFile,
+  MlDsaEthKatVector,
+  MlDsaEthKatVectorsFile,
   PrgVector,
   PrgVectorsFile,
 } from "../test/fixtures/kat/index.js";
@@ -2278,7 +2278,7 @@ function layer1ZhenfeiVectors(): PrgVector[] {
 // Deterministic JSON serializer — stable key order per DD-7 / DD-11
 // ---------------------------------------------------------------------------
 
-function serializeKatFixture(f: KatVectorsFile): string {
+function serializeKatFixture(f: MlDsaEthKatVectorsFile): string {
   const obj: Record<string, unknown> = {
     scheme: f.scheme,
     params: f.params,
@@ -2570,8 +2570,8 @@ async function main(): Promise<number> {
     );
   }
 
-  // Step 6: merge Python output + .rsp-derived fields → DD-7 KatVector[].
-  const katVectors: KatVector[] = rspRecords.map((r) => {
+  // Step 6: merge Python output + .rsp-derived fields → DD-7 MlDsaEthKatVector[].
+  const katVectors: MlDsaEthKatVector[] = rspRecords.map((r) => {
     const py = katByCount.get(r.count);
     if (py === undefined) {
       throw new Error(`Python batch missing KAT result for count=${r.count}`);
@@ -2592,7 +2592,7 @@ async function main(): Promise<number> {
     };
   });
 
-  const katFixture: KatVectorsFile = {
+  const katFixture: MlDsaEthKatVectorsFile = {
     scheme: "mldsa-eth",
     params: "dilithium2-keccak",
     submoduleSha,
