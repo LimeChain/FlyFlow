@@ -17,7 +17,7 @@ architecture: docs/architecture.md
 
 **Alternatives considered:**
 - **Strategy A (5-story):** Ships G2 HashToPoint + G4 signer in a single story (`hashtopoint + signer port`). Weaker bug localization — a G4 failure requires bisecting between HashToPoint adapter code and the sign state machine; G2 has no dedicated commit surface. Rejected.
-- **Strategy B (4-story):** Collapses G1 PRG verification into the keygen story as Task 0. Commits to "G1 is trivially identical" before verifying. If ETHFALCON's `Keccak256PRNG(a, b)` wrapper diverges from our `keccak-prg.ts`, Story 2-1 would reopen mid-stream with a `falconKeccakXofFactory` port. Rejected — DD-13 says the verification is non-skippable, so a dedicated small story is the right shape.
+- **Strategy B (4-story):** Collapses G1 PRG verification into the keygen story as Task 0. Commits to "G1 is trivially identical" before verifying. If ETHFALCON's `Keccak256PRNG(a, b)` wrapper [**A-004**: the actual ETHFALCON class is `KeccakPRNG()` (0-arg); `Keccak256PRNG(a, b)` is the ETHDILITHIUM wrapper — see `docs/amendments.md` A-004] diverges from our `keccak-prg.ts`, Story 2-1 would reopen mid-stream with a `falconKeccakXofFactory` port. Rejected — DD-13 says the verification is non-skippable, so a dedicated small story is the right shape.
 
 **Rationale for Strategy C:** G2 HashToPoint's bug classes (chunk endianness, rejection threshold, mod-q reduction, absorb order, coefficient-order) are distinct from the signer's state machine. A ~20-LOC test isolating HashToPoint pays for itself in diagnostic speed when G4 fails.
 
@@ -56,17 +56,17 @@ architecture: docs/architecture.md
 
 ### Story 1-2: `keccak-prg-verification` [S-M]
 
-**User Story:** As a signer-catalogue maintainer, I want confirmation that the shared `keccakXofFactory` produces byte-identical output to ETHFALCON's `Keccak256PRNG(a, b)` Python wrapper, so that the XOF primitive is trusted for keygen, HashToPoint, signer, and pk-transform gates.
+**User Story:** As a signer-catalogue maintainer, I want confirmation that the shared `keccakXofFactory` produces byte-identical output to ETHFALCON's `Keccak256PRNG(a, b)` Python wrapper [**A-004**: the actual ETHFALCON class is `KeccakPRNG()` (0-arg); `Keccak256PRNG(a, b)` is the ETHDILITHIUM wrapper — see `docs/amendments.md` A-004], so that the XOF primitive is trusted for keygen, HashToPoint, signer, and pk-transform gates.
 
 **Dependencies:** `1-1`
 **Wave:** 2 · **Gate:** **G1**
 
 **Tasks:**
-1. **T1 — Capture G1 vectors** from ETHFALCON's `Keccak256PRNG` Python wrapper.
+1. **T1 — Capture G1 vectors** from ETHFALCON's `Keccak256PRNG` Python wrapper. [**A-004**: target class is actually `KeccakPRNG()` (0-arg) — see `docs/amendments.md` A-004]
 2. **T2 — Assert byte-identity** via `assertBytesEqual` with factory-id discriminant in divergence messages.
 
 **Acceptance Criteria (BDD):**
-- **AC-1:** Given a fresh `KeccakPrg` seeded with G1 vector inputs, When scripted `inject`/`flip`/`extract` is applied per vector, Then output byte-equals ETHFALCON's Python `Keccak256PRNG(a, b)` output for the same seed + call sequence; divergence prints first-differing byte ±8 B context plus `(factory=keccak-prg)` discriminant.
+- **AC-1 (amended by A-004):** Given a fresh `KeccakPrg` seeded with G1 vector inputs, When scripted `inject`/`flip`/`extract` is applied per vector, Then output byte-equals ETHFALCON's Python `Keccak256PRNG(a, b)` output for the same seed + call sequence; divergence prints first-differing byte ±8 B context plus `(factory=keccak-prg)` discriminant. [**A-004**: target class is actually `KeccakPRNG()` (0-arg); `Keccak256PRNG(a, b)` is the ETHDILITHIUM wrapper — see `docs/amendments.md` A-004 for the authoritative class-name correction.]
 - **AC-2 (Error path):** Given divergence is detected, When the G1 KAT test runs, Then the test fails with byte-offset + factory-id context AND a reminder that DD-13 requires porting a `falconKeccakXofFactory` adapter before proceeding to Story 2-1 / 2-2.
 
 **FR Coverage:** FR-11

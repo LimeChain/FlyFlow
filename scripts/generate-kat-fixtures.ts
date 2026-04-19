@@ -136,6 +136,11 @@ const FALCON_HASHTOPOINT_FIXTURE = path.join(
   "falcon-eth",
   "hashtopoint-vectors.json",
 );
+const FALCON_PRG_FIXTURE = path.join(
+  FIXTURE_DIR,
+  "falcon-eth",
+  "prg-vectors.json",
+);
 
 /**
  * ETHFALCON KAT .rsp path — consumed by Story 1-1 T0 (PRE_G4_DRBG_PROBE) and
@@ -1900,6 +1905,413 @@ async function writeFalconHashToPointFixture(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Story 1-2 Task T1 — G1 Keccak-PRG vector capture from ETHFALCON's
+// `KeccakPRNG()` class. See `docs/amendments.md` §A-004 for the class-name
+// correction (plan/architecture call this `Keccak256PRNG(a, b)`, which is
+// actually the ETHDILITHIUM wrapper's name).
+//
+// Corpus: 6 vectors from `docs/stories/1-2.md` §"Fixture schema" corpus table,
+// covering the algorithmic branches the G1 gate must anchor —
+//   1. `ethfalcon-g1-01`             — 10 B inject, 1-block extract(32)
+//   2. `ethfalcon-g1-02`             — 10 B inject, 2-block extract(64)
+//   3. `ethfalcon-g1-cross-extract`  — 32 B inject, extract(5)+extract(27)
+//   4. `ethfalcon-g1-multi-inject`   — 16 B + 16 B inject, extract(64)
+//   5. `ethfalcon-g1-empty-seed`     — no inject, extract(32)
+//   6. `ethfalcon-g1-falcon-shaped-seed` — 40 B inject, extract(1024)
+//
+// All inject byte patterns are hardcoded in source (NOT generated from env
+// vars) so the Python-side capture is reproducible bit-for-bit across re-runs
+// when the ETHFALCON submodule SHA is unchanged.
+// ---------------------------------------------------------------------------
+
+/**
+ * One G1 corpus entry — the TS-side spec driving the Python KeccakPRNG
+ * subprocess. Emitted hex values are ALWAYS even-length (byte-aligned) and
+ * do NOT carry a `0x` prefix internally (the prefix is added at JSON emit
+ * time by {@link writeFalconPrgFixture}).
+ */
+interface FalconPrgCorpusEntry {
+  readonly id: string;
+  readonly description: string;
+  /** Byte patterns absorbed in order before `flip()`. Each entry is raw hex
+   *  (no `0x` prefix); empty array encodes the "no inject before flip" path. */
+  readonly injectsHex: readonly string[];
+  /** One entry per `extract(N)` call, in order. */
+  readonly extracts: readonly number[];
+}
+
+/**
+ * Deterministic G1 corpus. Matches `docs/stories/1-2.md` §"Fixture schema —
+ * G1 Keccak-PRG ETHFALCON vectors" corpus table verbatim.
+ */
+function buildFalconPrgCorpus(): readonly FalconPrgCorpusEntry[] {
+  // Helper: 32-byte ascending seed [0x00 .. 0x1f].
+  const seed32Ascending = Array.from({ length: 32 }, (_, i) =>
+    i.toString(16).padStart(2, "0"),
+  ).join("");
+  // Helpers: 16-byte blocks [0x40..0x4f] and [0x80..0x8f].
+  const block40Range = Array.from({ length: 16 }, (_, i) =>
+    (0x40 + i).toString(16).padStart(2, "0"),
+  ).join("");
+  const block80Range = Array.from({ length: 16 }, (_, i) =>
+    (0x80 + i).toString(16).padStart(2, "0"),
+  ).join("");
+  // Helper: 40-byte 0x11 repeat (falcon-shaped seed — .rsp drbgSeed is 48 B,
+  // but per story corpus table the G1 large-extract vector uses 40 B of
+  // 0x11 repeat to exercise many-block extracts without coupling to a .rsp).
+  const falconShaped40 = "11".repeat(40);
+  // Helper: "test input" UTF-8 = 0x7465737420696e707574 (10 B).
+  const testInput = Buffer.from("test input", "utf8").toString("hex");
+
+  return [
+    {
+      id: "ethfalcon-g1-01",
+      description:
+        'inject "test input" (10 B); flip; extract(32) — Zhenfei-canonical parity anchor',
+      injectsHex: [testInput],
+      extracts: [32],
+    },
+    {
+      id: "ethfalcon-g1-02",
+      description:
+        'inject "test input" (10 B); flip; extract(64) — two-block extract, exercises counter increment + big-endian u64 packing',
+      injectsHex: [testInput],
+      extracts: [64],
+    },
+    {
+      id: "ethfalcon-g1-cross-extract",
+      description:
+        "inject 32 B seed [0x00..0x1f]; flip; extract(5); extract(27) — out_buffer_pos persistence across extract calls",
+      injectsHex: [seed32Ascending],
+      extracts: [5, 27],
+    },
+    {
+      id: "ethfalcon-g1-multi-inject",
+      description:
+        "inject 16 B [0x40..0x4f]; inject 16 B [0x80..0x8f]; flip; extract(64) — absorb concatenation (inject(a);inject(b);flip ≡ inject(a‖b);flip)",
+      injectsHex: [block40Range, block80Range],
+      extracts: [64],
+    },
+    {
+      id: "ethfalcon-g1-empty-seed",
+      description:
+        "(no inject); flip; extract(32) — keccak256(b'') initial-state path",
+      injectsHex: [],
+      extracts: [32],
+    },
+    {
+      id: "ethfalcon-g1-falcon-shaped-seed",
+      description:
+        "inject 40 B (0x11 × 40); flip; extract(1024) — many-block extract (≥32 blocks), exercises the sustained counter-mode stream Falcon-512 sign consumes",
+      injectsHex: [falconShaped40],
+      extracts: [1024],
+    },
+  ];
+}
+
+/**
+ * Python subprocess source for the G1 capture. Structure mirrors
+ * FALCON_BATCH_PY / FALCON_PROBE_PY_T0:
+ *  - `sys.path.insert(0, "ETHFALCON/pythonref")` — mirrors Story 1-1 pattern.
+ *  - Imports the ETHFALCON upstream class `KeccakPRNG` (0-arg constructor;
+ *    see `docs/amendments.md` §A-004 — NOT `Keccak256PRNG(a, b)`).
+ *  - Reads a single JSON payload on stdin with a `jobs` array.
+ *  - For each job: `prng = KeccakPRNG()`, inject each hex, flip, extract each
+ *    requested length; emit one NDJSON line `{id, expected: [hex...]}`.
+ * NFR-3: zero `.py` files shipped — source passed via `python3 -c`.
+ * NFR-9: no env vars are interpolated into the subprocess source; all
+ * dynamic data flows via stdin.
+ */
+const FALCON_PRG_BATCH_PY = `
+import json
+import sys
+sys.path.insert(0, "ETHFALCON/pythonref")
+
+from keccak_prng import KeccakPRNG
+
+payload = json.loads(sys.stdin.read())
+for job in payload["jobs"]:
+    prng = KeccakPRNG()
+    for inj_hex in job["injects"]:
+        if inj_hex:
+            prng.inject(bytes.fromhex(inj_hex))
+    prng.flip()
+    outputs = [prng.extract(int(n)).hex() for n in job["extracts"]]
+    sys.stdout.write(json.dumps({"id": job["id"], "expected": outputs}) + "\\n")
+sys.stdout.flush()
+`;
+
+interface PythonPrgResult {
+  id: string;
+  expected: string[];
+}
+
+/**
+ * One G1 fixture vector (local structural type — the T2 loader will widen
+ * the shared `PrgVector.source` union to include `"ethfalcon-python-ref"`,
+ * which is the source string emitted here). Kept local to this module so
+ * T1 can land without the loader-side refactor.
+ */
+interface FalconPrgVectorLocal {
+  id: string;
+  source: "ethfalcon-python-ref";
+  injects: `0x${string}`[];
+  extracts: number[];
+  expected: `0x${string}`[];
+  description: string;
+}
+
+/**
+ * Top-level shape of `test/fixtures/kat/falcon-eth/prg-vectors.json`. Matches
+ * `docs/stories/1-2.md` §"Fixture schema — G1 Keccak-PRG ETHFALCON vectors".
+ */
+interface FalconPrgVectorsFileLocal {
+  scheme: "falcon-eth";
+  gate: "G1-keccak-prg";
+  submoduleSource: "ethfalcon";
+  submoduleSha: string;
+  generatedAt: string;
+  source: {
+    pythonClass: "KeccakPRNG";
+    pythonFile: "ETHFALCON/pythonref/keccak_prng.py";
+    generator: "scripts/generate-kat-fixtures.ts --scheme falcon-eth --target prg";
+  };
+  vectors: FalconPrgVectorLocal[];
+}
+
+/**
+ * Canonical serializer for the G1 prg-vectors fixture. Mirrors the
+ * stable-key-order / 2-space / `\n` / trailing-newline pattern used by
+ * {@link serializeFalconKatFixture} and {@link serializeHashToPointFixture}.
+ * Per-vector key order matches the `PrgVector` interface in
+ * `test/fixtures/kat/index.ts:110-122` so T2's loader can return these
+ * directly.
+ */
+function serializeFalconPrgFixture(f: FalconPrgVectorsFileLocal): string {
+  const obj: Record<string, unknown> = {
+    scheme: f.scheme,
+    gate: f.gate,
+    submoduleSource: f.submoduleSource,
+    submoduleSha: f.submoduleSha,
+    generatedAt: f.generatedAt,
+    source: {
+      pythonClass: f.source.pythonClass,
+      pythonFile: f.source.pythonFile,
+      generator: f.source.generator,
+    },
+    vectors: f.vectors.map((v) => ({
+      id: v.id,
+      source: v.source,
+      injects: v.injects,
+      extracts: v.extracts,
+      expected: v.expected,
+      description: v.description,
+    })),
+  };
+  return JSON.stringify(obj, null, 2) + "\n";
+}
+
+/**
+ * Spawn ONE `python3 -c` subprocess driving ETHFALCON's `KeccakPRNG()` over
+ * the G1 corpus. Returns a `Map<id, expected[]>` keyed by the corpus entry
+ * id. Throws `FixtureGenError` on subprocess failure or missing/unexpected
+ * output rows.
+ *
+ * PYTHONPATH extension + env passthrough + batch-NDJSON shape mirrors
+ * {@link runFalconPythonBatch}.
+ */
+function runFalconPrgPythonBatch(
+  corpus: readonly FalconPrgCorpusEntry[],
+): Map<string, string[]> {
+  const batchPayload = {
+    jobs: corpus.map((c) => ({
+      id: c.id,
+      injects: c.injectsHex,
+      extracts: c.extracts,
+    })),
+  };
+
+  const pyProc = spawnSync("python3", ["-c", FALCON_PRG_BATCH_PY], {
+    cwd: REPO_ROOT,
+    input: JSON.stringify(batchPayload),
+    encoding: "utf8",
+    // Largest expected output: falcon-shaped seed extract(1024) = 2048 hex
+    // chars; plus the JSON envelope per job. 16 MB is ample headroom.
+    maxBuffer: 16 * 1024 * 1024,
+    stdio: ["pipe", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      PYTHONPATH: [
+        path.join(REPO_ROOT, "ETHFALCON", "pythonref"),
+        process.env["PYTHONPATH"] ?? "",
+      ]
+        .filter((p) => p !== "")
+        .join(path.delimiter),
+    },
+  });
+  if (pyProc.status !== 0) {
+    throw new FixtureGenError(
+      `Falcon G1 PRG Python batch failed (exit ${String(pyProc.status)}):\n${pyProc.stderr ?? ""}`,
+      "PRE_G4_DRBG_PROBE_FAILED",
+    );
+  }
+
+  const byId = new Map<string, string[]>();
+  for (const rawLine of pyProc.stdout.split("\n")) {
+    const line = rawLine.trim();
+    if (line === "") continue;
+    const parsed = JSON.parse(line) as PythonPrgResult;
+    byId.set(parsed.id, parsed.expected);
+  }
+  if (byId.size !== corpus.length) {
+    throw new FixtureGenError(
+      `Falcon G1 PRG batch returned ${byId.size} results, expected ${corpus.length}`,
+      "PRE_G4_DRBG_PROBE_FAILED",
+    );
+  }
+  return byId;
+}
+
+/**
+ * Story 1-2 Task T1 — write `test/fixtures/kat/falcon-eth/prg-vectors.json`.
+ *
+ * Preconditions: caller has already run `runEthfalconPreflightDiagnostics()`
+ * (via {@link mainFalconEth}) — ETHFALCON submodule is initialized, pinned,
+ * Python + deps are present.
+ *
+ * Flow:
+ *   1. Read the submodule SHA + author-date timestamp (deterministic; same
+ *      as Story 1-1's vectors/hashtopoint flows).
+ *   2. Build the 6-vector corpus (hardcoded, deterministic).
+ *   3. Validate corpus shape (unique ids, even-length hex, ≥6 entries).
+ *   4. Spawn ONE `python3 -c` subprocess → capture expected outputs.
+ *   5. Re-validate output shapes (per-vector `extracts.length === expected.length`;
+ *      each expected hex length === 2 × corresponding extract length).
+ *   6. Stitch corpus metadata + Python outputs into FalconPrgVectorLocal records.
+ *   7. Serialize via the canonical serializer and write the file.
+ */
+function writeFalconPrgFixture(): void {
+  const { currentHead, commitTimestamp } = readEthfalconSubmoduleShas();
+  const submoduleSha = currentHead;
+  const generatedAt = new Date(commitTimestamp * 1000).toISOString();
+
+  const corpus = buildFalconPrgCorpus();
+
+  // Structural corpus sanity (preflight — fail fast before the subprocess).
+  const seenIds = new Set<string>();
+  for (const entry of corpus) {
+    if (seenIds.has(entry.id)) {
+      throw new FixtureGenError(
+        `Duplicate G1 corpus id: ${entry.id}`,
+        "PRE_G4_DRBG_PROBE_FAILED",
+      );
+    }
+    seenIds.add(entry.id);
+    for (const [idx, inj] of entry.injectsHex.entries()) {
+      if (inj.length % 2 !== 0) {
+        throw new FixtureGenError(
+          `G1 corpus ${entry.id} injects[${idx}] has odd hex length ${inj.length}`,
+          "PRE_G4_DRBG_PROBE_FAILED",
+        );
+      }
+      if (!/^[0-9a-f]*$/.test(inj)) {
+        throw new FixtureGenError(
+          `G1 corpus ${entry.id} injects[${idx}] is not lowercase hex`,
+          "PRE_G4_DRBG_PROBE_FAILED",
+        );
+      }
+    }
+    for (const [idx, n] of entry.extracts.entries()) {
+      if (!Number.isInteger(n) || n < 0) {
+        throw new FixtureGenError(
+          `G1 corpus ${entry.id} extracts[${idx}] = ${String(n)} is not a non-negative integer`,
+          "PRE_G4_DRBG_PROBE_FAILED",
+        );
+      }
+    }
+  }
+  if (corpus.length < 6) {
+    throw new FixtureGenError(
+      `G1 corpus has ${corpus.length} entries; must be ≥ 6 per Story 1-2 T1 AC-1`,
+      "PRE_G4_DRBG_PROBE_FAILED",
+    );
+  }
+
+  const pyById = runFalconPrgPythonBatch(corpus);
+
+  const vectors: FalconPrgVectorLocal[] = corpus.map((entry) => {
+    const expected = pyById.get(entry.id);
+    if (expected === undefined) {
+      throw new FixtureGenError(
+        `G1 Python batch missing result for id=${entry.id}`,
+        "PRE_G4_DRBG_PROBE_FAILED",
+      );
+    }
+    if (expected.length !== entry.extracts.length) {
+      throw new FixtureGenError(
+        `G1 vector ${entry.id}: Python returned ${expected.length} outputs, expected ${entry.extracts.length} (one per extract call)`,
+        "PRE_G4_DRBG_PROBE_FAILED",
+      );
+    }
+    for (const [i, hex] of expected.entries()) {
+      const wantByteLen = entry.extracts[i]!;
+      if (hex.length !== 2 * wantByteLen) {
+        throw new FixtureGenError(
+          `G1 vector ${entry.id}: expected[${i}] hex length ${hex.length} != 2*${wantByteLen}`,
+          "PRE_G4_DRBG_PROBE_FAILED",
+        );
+      }
+      if (!/^[0-9a-f]*$/.test(hex)) {
+        throw new FixtureGenError(
+          `G1 vector ${entry.id}: expected[${i}] is not lowercase hex`,
+          "PRE_G4_DRBG_PROBE_FAILED",
+        );
+      }
+    }
+
+    const injects: `0x${string}`[] = entry.injectsHex.map(
+      (h) => `0x${h}` as `0x${string}`,
+    );
+    const expectedPrefixed: `0x${string}`[] = expected.map(
+      (h) => `0x${h}` as `0x${string}`,
+    );
+    return {
+      id: entry.id,
+      source: "ethfalcon-python-ref",
+      injects,
+      extracts: [...entry.extracts],
+      expected: expectedPrefixed,
+      description: entry.description,
+    };
+  });
+
+  const fixture: FalconPrgVectorsFileLocal = {
+    scheme: "falcon-eth",
+    gate: "G1-keccak-prg",
+    submoduleSource: "ethfalcon",
+    submoduleSha,
+    generatedAt,
+    source: {
+      pythonClass: "KeccakPRNG",
+      pythonFile: "ETHFALCON/pythonref/keccak_prng.py",
+      generator:
+        "scripts/generate-kat-fixtures.ts --scheme falcon-eth --target prg",
+    },
+    vectors,
+  };
+
+  mkdirSync(path.dirname(FALCON_PRG_FIXTURE), { recursive: true });
+  writeFileSync(FALCON_PRG_FIXTURE, serializeFalconPrgFixture(fixture), "utf8");
+
+  process.stdout.write(
+    `Wrote ${vectors.length} falcon-eth G1 PRG vectors → ${path.relative(
+      REPO_ROOT,
+      FALCON_PRG_FIXTURE,
+    )}\n`,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Git helpers — pin-read plumbing (AC-1-4's Task 4 finalization hooks here)
 // ---------------------------------------------------------------------------
 
@@ -2360,12 +2772,16 @@ type Scheme = "mldsa-eth" | "falcon-eth";
 /**
  * Narrowing flag for the falcon-eth scheme. `--target hashtopoint` emits ONLY
  * the hashtopoint-vectors.json file (skips .rsp → vectors.json); `--target
- * vectors` emits ONLY vectors.json (skips Hardhat deploy). The default runs
- * BOTH — `npm run kat:regen -- --scheme falcon-eth` produces the full
- * falcon-eth fixture corpus in one invocation, mirroring the mldsa-eth
- * scheme's "write both files per run" convention.
+ * vectors` emits ONLY vectors.json (skips Hardhat deploy). The default (`all`)
+ * runs BOTH `vectors` and `hashtopoint` — mirrors the mldsa-eth scheme's
+ * "write both files per run" convention. `--target prg` (Story 1-2 T1) runs
+ * ONLY the G1 Keccak-PRG vector capture from ETHFALCON's `KeccakPRNG()` class
+ * and is INTENTIONALLY not included in `all`: G1 capture is low-frequency
+ * (once per ETHFALCON SHA bump) and expanding `all` to three files would
+ * rewrite `prg-vectors.json` on every operator invocation. Operators invoke
+ * G1 capture explicitly via `npm run kat:regen -- --scheme falcon-eth --target prg`.
  */
-type FalconTarget = "all" | "vectors" | "hashtopoint";
+type FalconTarget = "all" | "vectors" | "hashtopoint" | "prg";
 
 function parseSchemeArg(argv: readonly string[]): Scheme | "invalid" {
   for (let i = 0; i < argv.length; i++) {
@@ -2390,13 +2806,23 @@ function parseFalconTargetArg(
     const tok = argv[i];
     if (tok === "--target") {
       const val = argv[i + 1];
-      if (val === "vectors" || val === "hashtopoint" || val === "all")
+      if (
+        val === "vectors" ||
+        val === "hashtopoint" ||
+        val === "all" ||
+        val === "prg"
+      )
         return val;
       return "invalid";
     }
     if (tok !== undefined && tok.startsWith("--target=")) {
       const val = tok.slice("--target=".length);
-      if (val === "vectors" || val === "hashtopoint" || val === "all")
+      if (
+        val === "vectors" ||
+        val === "hashtopoint" ||
+        val === "all" ||
+        val === "prg"
+      )
         return val;
       return "invalid";
     }
@@ -2405,37 +2831,51 @@ function parseFalconTargetArg(
 }
 
 /**
- * Story 1-1 falcon-eth CLI branch. Runs:
+ * Story 1-1 + 1-2 falcon-eth CLI branch. Runs:
  *   (1) ETHFALCON preflight diagnostics (submodule init, pin, python, deps);
- *   (2) PRE_G4_DRBG_PROBE on vec 0 (A-005 audit gate);
+ *   (2) PRE_G4_DRBG_PROBE on vec 0 (A-005 audit gate) — SKIPPED when
+ *       `--target prg` (G1 capture does not depend on the DRBG probe;
+ *       it exercises only the ETHFALCON `KeccakPRNG()` class);
  *   (3) T1 bulk transcription — parse all 100 .rsp records, run the single
  *       Python batch to derive reshapedPublicKey + signature, write
  *       test/fixtures/kat/falcon-eth/vectors.json (skipped when
- *       `--target hashtopoint`);
+ *       `--target hashtopoint` or `--target prg`);
  *   (4) T2 HashToPoint capture — deploy ZKNOX_HashToPointExposed via Hardhat,
  *       call `.compute()` over the deterministic N=8 corpus, write
  *       test/fixtures/kat/falcon-eth/hashtopoint-vectors.json (skipped when
- *       `--target vectors`).
+ *       `--target vectors` or `--target prg`);
+ *   (5) Story 1-2 T1 — G1 Keccak-PRG capture — spawn ONE `python3 -c` that
+ *       drives ETHFALCON's `KeccakPRNG()` class over the deterministic
+ *       6-vector corpus, write test/fixtures/kat/falcon-eth/prg-vectors.json.
+ *       Runs ONLY when `--target prg` — NOT included in `all` per Story 1-2
+ *       §"CLI extension" (G1 capture is low-frequency; operators invoke
+ *       explicitly).
  *
- * The HashToPoint generator runs LAST — if it fails (e.g., artifact missing
- * from a stale `cache/`), the T1 vectors.json write is already complete and
- * can be inspected independently. Hardhat-triggered recompile at import
- * time is an idempotent side effect.
+ * The HashToPoint generator runs LAST of `all` — if it fails (e.g., artifact
+ * missing from a stale `cache/`), the T1 vectors.json write is already
+ * complete and can be inspected independently. Hardhat-triggered recompile at
+ * import time is an idempotent side effect.
  */
 async function mainFalconEth(target: FalconTarget): Promise<number> {
   if (!runEthfalconPreflightDiagnostics()) {
     return 1;
   }
   try {
-    // T0 probe is load-bearing for BOTH downstream targets — the A-005
-    // DRBG-state-reproducibility invariant gates any falcon-eth fixture
-    // output, not just vectors.json. Always run.
-    preG4DrbgProbe();
-    if (target === "all" || target === "vectors") {
-      writeFalconEthFixture();
-    }
-    if (target === "all" || target === "hashtopoint") {
-      await writeFalconHashToPointFixture();
+    if (target === "prg") {
+      // G1 capture (Story 1-2 T1) — does NOT consume the A-005 DRBG probe.
+      // Fresh `KeccakPRNG()` per vector, scripted inject/flip/extract.
+      writeFalconPrgFixture();
+    } else {
+      // T0 probe is load-bearing for BOTH vectors and hashtopoint targets —
+      // the A-005 DRBG-state-reproducibility invariant gates falcon-eth
+      // signing fixtures, not G1 primitive vectors.
+      preG4DrbgProbe();
+      if (target === "all" || target === "vectors") {
+        writeFalconEthFixture();
+      }
+      if (target === "all" || target === "hashtopoint") {
+        await writeFalconHashToPointFixture();
+      }
     }
   } catch (err) {
     if (err instanceof FixtureGenError) {
@@ -2476,7 +2916,7 @@ async function main(): Promise<number> {
         JSON.stringify({
           code: "INVALID_TARGET",
           message:
-            "Unrecognized --target value. Supported: 'all' (default), 'vectors', 'hashtopoint'.",
+            "Unrecognized --target value. Supported: 'all' (default — runs vectors + hashtopoint), 'vectors', 'hashtopoint', 'prg' (G1 Keccak-PRG capture, explicit only).",
         }) + "\n",
       );
       return 1;

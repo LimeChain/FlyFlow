@@ -1,0 +1,99 @@
+{
+  "scheme": "falcon-eth",
+  "gate": "G1-keccak-prg",
+  "submoduleSource": "ethfalcon",
+  "submoduleSha": "03ed0d60c67087527de7c4a3c1c469b89611bd68",
+  "generatedAt": "2026-03-23T16:07:03.000Z",
+  "source": {
+    "pythonClass": "KeccakPRNG",
+    "pythonFile": "ETHFALCON/pythonref/keccak_prng.py",
+    "generator": "scripts/generate-kat-fixtures.ts --scheme falcon-eth --target prg"
+  },
+  "vectors": [
+    {
+      "id": "ethfalcon-g1-01",
+      "source": "ethfalcon-python-ref",
+      "injects": [
+        "0x7465737420696e707574"
+      ],
+      "extracts": [
+        32
+      ],
+      "expected": [
+        "0x5b9e99370fa4b753ac6bf0d246b3cec353c84a67839f5632cb2679b4ae565601"
+      ],
+      "description": "inject \"test input\" (10 B); flip; extract(32) — Zhenfei-canonical parity anchor"
+    },
+    {
+      "id": "ethfalcon-g1-02",
+      "source": "ethfalcon-python-ref",
+      "injects": [
+        "0x7465737420696e707574"
+      ],
+      "extracts": [
+        64
+      ],
+      "expected": [
+        "0x5b9e99370fa4b753ac6bf0d246b3cec353c84a67839f5632cb2679b4ae565601569857b781dd8b81dd9cb45d06999916742043ff52f1cf165e161bcc9938b705"
+      ],
+      "description": "inject \"test input\" (10 B); flip; extract(64) — two-block extract, exercises counter increment + big-endian u64 packing"
+    },
+    {
+      "id": "ethfalcon-g1-cross-extract",
+      "source": "ethfalcon-python-ref",
+      "injects": [
+        "0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+      ],
+      "extracts": [
+        5,
+        27
+      ],
+      "expected": [
+        "0x77b7caf29d",
+        "0x0c44ef38344ab0bec3724d4d73fcb0c022b364125a19ff674e1fea"
+      ],
+      "description": "inject 32 B seed [0x00..0x1f]; flip; extract(5); extract(27) — out_buffer_pos persistence across extract calls"
+    },
+    {
+      "id": "ethfalcon-g1-multi-inject",
+      "source": "ethfalcon-python-ref",
+      "injects": [
+        "0x404142434445464748494a4b4c4d4e4f",
+        "0x808182838485868788898a8b8c8d8e8f"
+      ],
+      "extracts": [
+        64
+      ],
+      "expected": [
+        "0x1cf65a25a7389cd3ed56566f5c3ca76aabfa2933e5891c29fd30a7652f3b52a3897a91c0a94070109c365d96cb794b0370f4a199004c3669e9004d2e77252420"
+      ],
+      "description": "inject 16 B [0x40..0x4f]; inject 16 B [0x80..0x8f]; flip; extract(64) — absorb concatenation (inject(a);inject(b);flip ≡ inject(a‖b);flip)"
+    },
+    {
+      "id": "ethfalcon-g1-empty-seed",
+      "source": "ethfalcon-python-ref",
+      "injects": [],
+      "extracts": [
+        32
+      ],
+      "expected": [
+        "0x581e5628147dbbb91f91b8ab85d66baa9dfc56c35931210bf14524e0650061a8"
+      ],
+      "description": "(no inject); flip; extract(32) — keccak256(b'') initial-state path"
+    },
+    {
+      "id": "ethfalcon-g1-falcon-shaped-seed",
+      "source": "ethfalcon-python-ref",
+      "injects": [
+        "0x11111111111111111111111111111111111111111111111111111111111111111111111111111111"
+      ],
+      "extracts": [
+        1024
+      ],
+      "expected": [
+        "0x3cb0a18432c8c8b23776340d426e7954e48167905ef5513e06948ff88d86f21741c7da54d3359fd357c9b485e98590cec4f3b7ce7093efcae373edacb2c228df4e27a702cd266003e202e520f46e65c50a0e15ca79bac5666af98d8a99783f3469b1f151c21fb4564b94185ba834d532d38f2dd49719f5abb82da36cb360e2bd1f568bc61a93a6b4c533b247ce3cb462061c00153ba8801306fb66026debdb0dc649c66f5ab7c9745f46c302b650de601e703cec23fff65e5eba0f567d5e8e6975cf51c85c2385cb928347ce1ea3c39525e9e3105e2912a696ac11219e1ca6ca32fd24c2563e7118c0a01896cce7728f55111fc95faec9d3d39fbcfe691e320f05738be937d66993287c7ae36d303f9390d42d050c4edb5e7862b91b43dba84c7f0f9fba939b7a0701d1d2fb5af5038511527afb9a81f6f94656fd95faa753732f525d679a83105fd59fada334084349914f08f768fcfcd837bfdf3afb50e3348702ce250b7aa4b9198a658b840d7fd661ff75e60fcf3f30372d2cdaeafd5e1eb0c4e79381d6527d53a36d1e2591c14e816b4d644f2c9ce62c0764058acf7c6fa77cd0bb61bd0a3b4c491adcc158dce5015cd09b945a68f0a9b78fb66bf6d263fa9f6d9316bb34b0bb0cf0fea53ede96823f3182a53732322732c50fb178dd66466710c42fd88ea627da01c59d525caca1cc2e48685de824c364bde0e2dddef813c357ef18edc1e889bd8c75c9d6bd9e5db98044746976dc374dad5f3dcce8ae90956380161f8a9102379f28bee48d0550c5c048b58ce70d1b110741e31bdd34c03344012c01d7066d849797fc193a4e31edb07079911338789f16b0d80b4dbd1d24b744ae28de8758919325810e72141cfbf207fe361de5731a9d4fe79939a65c57e69266452d44bdd37b7e7e73e54795db99c903ee1f163b1c3a95cfbd945009b285f9f903029914a8062619ba3737d98fa2af6e82a457c0ea6547c42eeae2f90ce09b92889194dca1e0f2609b56e53c371bb73ed9378bea74c7e717c95ebd3a0ae7c9a5e8ef3be373d5b475300175dcc7944fbfcdcf51cc9d4baf45036ee43758e73f3b6b2de02e8a5dae460c965f1181845ba5f72d7efae0c913ee60c71fca550c23d47a765e66bbe2526fa55f361144f6daef0ca036d140d4a7d6e9abebb095362c86b57da75649b14c96a06142248202ec4535119f913200e919c7548b5d63995f5caef12710637282dcd0ee5d05008e788a2ed9a8dde0b97f60019035e3abfc57b436df394a13022dd212431a18f1ec1ad9a15de99e7cd0f68f6bafa67bdae8dd391f61259c90d846aca8c31442d1bcace58e6388e93e21374f7ca9dec1050a6471b79c017adc533246bfce8e0884b5afa43cb4e3d556016ed998635cfbf8a1d96728c75f838dc5048eb0d642f6a4743f78d9c81ef5ccca672fa8c11e"
+      ],
+      "description": "inject 40 B (0x11 × 40); flip; extract(1024) — many-block extract (≥32 blocks), exercises the sustained counter-mode stream Falcon-512 sign consumes"
+    }
+  ]
+}
