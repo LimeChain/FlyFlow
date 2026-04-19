@@ -89,6 +89,7 @@
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -130,6 +131,11 @@ const FIXTURE_DIR = path.join(REPO_ROOT, "test", "fixtures", "kat");
 const ML_DSA_FIXTURE = path.join(FIXTURE_DIR, "mldsa-eth", "vectors.json");
 const PRG_FIXTURE = path.join(FIXTURE_DIR, "keccak-prg", "vectors.json");
 const FALCON_FIXTURE = path.join(FIXTURE_DIR, "falcon-eth", "vectors.json");
+const FALCON_HASHTOPOINT_FIXTURE = path.join(
+  FIXTURE_DIR,
+  "falcon-eth",
+  "hashtopoint-vectors.json",
+);
 
 /**
  * ETHFALCON KAT .rsp path — consumed by Story 1-1 T0 (PRE_G4_DRBG_PROBE) and
@@ -1580,6 +1586,320 @@ function writeFalconEthFixture(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Story 1-1 Task T2 — Hardhat-deployed HashToPoint fixture generator
+//   (DD-25 Option C: trust anchor is the pinned Solidity source).
+//
+// Deploys `ZKNOX_HashToPointExposed` (appended to
+// `contracts/imports/FalconRef.sol` by T2) on an in-process Hardhat node,
+// calls `.compute(salt, msg)` for a deterministic corpus of N=8 pairs via
+// read-only viem `read.compute([...])` (pure function — no transaction),
+// and writes `test/fixtures/kat/falcon-eth/hashtopoint-vectors.json` in the
+// canonical schema defined in `docs/stories/1-1.md` §"Fixture schema —
+// hashtopoint-vectors.json".
+//
+// Hardhat integration: uses the same `hre.network.connect() → viem` pattern
+// established in `test/fixtures/falcon.ts` and `test/accounts/falcon.test.ts`.
+// `hre` is imported dynamically (`await import("hardhat")`) and only when the
+// falcon-eth branch runs, so the mldsa-eth CLI path keeps its clean
+// "no hardhat runtime dep" cold-start.
+// ---------------------------------------------------------------------------
+
+/**
+ * Deterministic `(salt, message)` corpus for the HashToPoint fixture. N=8.
+ *
+ * Design rationale — the story's Task T2 guidance calls for N≥6 with good
+ * coverage; we use 8 for slack:
+ *   - vec-000: all-zero salt (40 B), empty message (0 B). Boundary.
+ *   - vec-001: all-0xff salt (40 B), empty message. Boundary/symmetry pair.
+ *   - vec-002: all-zero salt, 256-byte max-reasonable message. Boundary.
+ *   - vec-003: keccak("falcon-eth-kat-v1-salt-0") → first 40 B; short msg.
+ *   - vec-004: same salt as vec-003 (counter-0 pair); different msg.
+ *   - vec-005: keccak("falcon-eth-kat-v1-salt-1") → 40 B; keccak("msg-1").
+ *   - vec-006: keccak("falcon-eth-kat-v1-salt-2") → 40 B; 13-byte ASCII msg
+ *              "hello-falcon" (mirrors Solidity common input shape).
+ *   - vec-007: single-byte (0x01) message, asymmetric salt pattern
+ *              (first 20 B 0xAA, last 20 B 0x55) — ensures exactly one
+ *              boundary crossing inside the 40-byte salt.
+ *
+ * All salts are 40 B; messages vary in length. Values are hardcoded (NOT
+ * generated from env vars) so the corpus is part of the source tree.
+ */
+interface HashToPointCorpusEntry {
+  readonly id: string;
+  readonly saltHex: string; // 80 hex chars, no 0x prefix
+  readonly messageHex: string; // variable, no 0x prefix
+}
+
+/**
+ * SHA-256 of an ASCII string via Node's built-in `node:crypto`. Used solely
+ * to derive the deterministic 40-byte salts + messages in the
+ * {@link buildHashToPointCorpus} fixed corpus — the T2 corpus needs the
+ * salts to be deterministic, 40 B, and varied; it does NOT need them to be
+ * keccak256-derived (the "keccak256(label)" phrasing in the story's Task T2
+ * guidance is coverage shape, not a cryptographic requirement). SHA-256 is
+ * chosen over keccak256 to keep the CLI dependency surface minimal — no viem
+ * dep in the hot path.
+ */
+function nodeSha256(label: string): Buffer {
+  return createHash("sha256").update(label).digest();
+}
+
+/**
+ * Build the 40-byte salt for a labeled corpus entry. First 32 B are
+ * SHA-256(label); last 8 B are the first 8 B of SHA-256("tail-" || label).
+ * Deterministic, varied, independent of any runtime randomness.
+ */
+function deriveSalt40(label: string): string {
+  const head32 = nodeSha256(label);
+  const tail32 = nodeSha256(`tail-${label}`);
+  return Buffer.concat([head32, tail32.subarray(0, 8)]).toString("hex");
+}
+
+function buildHashToPointCorpus(): readonly HashToPointCorpusEntry[] {
+  const salt0 = deriveSalt40("falcon-eth-kat-v1-salt-0");
+  const salt1 = deriveSalt40("falcon-eth-kat-v1-salt-1");
+  const salt2 = deriveSalt40("falcon-eth-kat-v1-salt-2");
+
+  const msg0 = nodeSha256("falcon-eth-kat-v1-msg-0").toString("hex"); // 32 B
+  const msg1 = nodeSha256("falcon-eth-kat-v1-msg-1").toString("hex"); // 32 B
+  const msgCounter0 = nodeSha256("falcon-eth-kat-v1-counter-0").toString(
+    "hex",
+  ); // 32 B
+
+  return [
+    {
+      id: "vec-000",
+      saltHex: "00".repeat(40),
+      messageHex: "",
+    },
+    {
+      id: "vec-001",
+      saltHex: "ff".repeat(40),
+      messageHex: "",
+    },
+    {
+      id: "vec-002",
+      saltHex: "00".repeat(40),
+      messageHex: "01".repeat(256), // 256 B payload — max-reasonable
+    },
+    {
+      id: "vec-003",
+      saltHex: salt0,
+      messageHex: msg0,
+    },
+    {
+      id: "vec-004",
+      saltHex: salt0, // same salt as vec-003 (counter-0 pair) …
+      messageHex: msgCounter0, // … different message
+    },
+    {
+      id: "vec-005",
+      saltHex: salt1,
+      messageHex: msg1,
+    },
+    {
+      id: "vec-006",
+      saltHex: salt2,
+      messageHex: Buffer.from("hello-falcon", "ascii").toString("hex"),
+    },
+    {
+      id: "vec-007",
+      saltHex: "aa".repeat(20) + "55".repeat(20), // asymmetric — one boundary
+      messageHex: "01",
+    },
+  ];
+}
+
+/**
+ * Single vector in the hashtopoint fixture. Kept as a structural local type so
+ * T2 can land without the T4 loader refactor; matches
+ * `HashToPointVector` from `docs/stories/1-1.md` §"TypeScript types".
+ */
+interface HashToPointVectorLocal {
+  id: string;
+  salt: `0x${string}`;
+  message: `0x${string}`;
+  expectedHash: number[]; // 512 uint16 coefficients, each < 12289
+}
+
+/**
+ * Top-level shape of `test/fixtures/kat/falcon-eth/hashtopoint-vectors.json`.
+ * Canonical key order per the story's §"Fixture schema — hashtopoint-
+ * vectors.json".
+ */
+interface HashToPointVectorsFileLocal {
+  scheme: "falcon-eth";
+  gate: "G2-hashtopoint";
+  submoduleSource: "ethfalcon";
+  submoduleSha: string;
+  generatedAt: string;
+  source: {
+    solContract: string;
+    solFile: string;
+    upstreamFile: string;
+    algorithm: string;
+    generator: string;
+  };
+  vectors: HashToPointVectorLocal[];
+}
+
+/**
+ * Canonical serializer for the hashtopoint fixture. Mirrors the
+ * `serializeFalconKatFixture` stable-key-order / 2-space / `\n` pattern.
+ */
+function serializeHashToPointFixture(
+  f: HashToPointVectorsFileLocal,
+): string {
+  const obj: Record<string, unknown> = {
+    scheme: f.scheme,
+    gate: f.gate,
+    submoduleSource: f.submoduleSource,
+    submoduleSha: f.submoduleSha,
+    generatedAt: f.generatedAt,
+    source: {
+      solContract: f.source.solContract,
+      solFile: f.source.solFile,
+      upstreamFile: f.source.upstreamFile,
+      algorithm: f.source.algorithm,
+      generator: f.source.generator,
+    },
+    vectors: f.vectors.map((v) => ({
+      id: v.id,
+      salt: v.salt,
+      message: v.message,
+      expectedHash: v.expectedHash,
+    })),
+  };
+  return JSON.stringify(obj, null, 2) + "\n";
+}
+
+/**
+ * Story 1-1 Task T2 — deploy `ZKNOX_HashToPointExposed` on an in-process
+ * Hardhat node and capture the 512-coeff `expectedHash` for each corpus
+ * entry. Writes `test/fixtures/kat/falcon-eth/hashtopoint-vectors.json`.
+ *
+ * Runs `npx hardhat compile` implicitly via `hre.network.connect()` (the
+ * first `viem.deployContract(...)` call triggers a compile-on-demand if
+ * artifacts are missing). AC-NFR-10: the caller's baseline `npm run
+ * compile` is the gating check for zero warnings; this function assumes
+ * that gate has already passed in CI.
+ */
+async function writeFalconHashToPointFixture(): Promise<void> {
+  const { currentHead, commitTimestamp } = readEthfalconSubmoduleShas();
+  const submoduleSha = currentHead;
+  const generatedAt = new Date(commitTimestamp * 1000).toISOString();
+
+  const corpus = buildHashToPointCorpus();
+
+  // Structural sanity on the corpus — salts are 40 B, IDs are unique.
+  const seenIds = new Set<string>();
+  for (const entry of corpus) {
+    if (entry.saltHex.length !== 80) {
+      throw new Error(
+        `Corpus entry ${entry.id} salt length is ${
+          entry.saltHex.length / 2
+        } B, expected 40 B`,
+      );
+    }
+    if (entry.messageHex.length % 2 !== 0) {
+      throw new Error(
+        `Corpus entry ${entry.id} message hex has odd length ${entry.messageHex.length}`,
+      );
+    }
+    if (seenIds.has(entry.id)) {
+      throw new Error(`Corpus duplicate id: ${entry.id}`);
+    }
+    seenIds.add(entry.id);
+  }
+  if (corpus.length < 6) {
+    throw new Error(
+      `HashToPoint corpus has ${corpus.length} entries; must be ≥ 6 per Task T2 / AC-2`,
+    );
+  }
+
+  // Dynamic import: `hardhat` is a heavy module with side-effects (it reads
+  // hardhat.config.ts, initializes the task graph). Keep it off the mldsa-eth
+  // CLI cold-start so the default `npm run kat:regen` path is unaffected.
+  const hre = (await import("hardhat")).default;
+  const connection = await hre.network.connect();
+  const { viem } = connection;
+
+  const contract = await viem.deployContract("ZKNOX_HashToPointExposed");
+
+  const vectors: HashToPointVectorLocal[] = [];
+  for (const entry of corpus) {
+    const saltHex = `0x${entry.saltHex}` as `0x${string}`;
+    const msgHex = `0x${entry.messageHex}` as `0x${string}`;
+    // `.read.compute([salt, msg])` runs as `eth_call` — no tx, no gas
+    // measurement. The contract method is `pure`, so state is untouched.
+    // viem types the `read.compute` method as optional even though the
+    // artifact ABI always defines it; use the established `!` pattern from
+    // `test/fixtures/falcon.ts:38` (`.simulate.setKey!([encoded])`).
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const raw = (await contract.read.compute!([
+      saltHex,
+      msgHex,
+    ])) as readonly bigint[];
+
+    if (raw.length !== 512) {
+      throw new Error(
+        `ZKNOX_HashToPointExposed.compute returned ${raw.length} coefficients for ${entry.id}, expected 512`,
+      );
+    }
+    const expectedHash: number[] = new Array(512);
+    for (let i = 0; i < 512; i++) {
+      const v = raw[i]!;
+      // Convert bigint → number safely (max value < 12289 < 2^53).
+      const n = Number(v);
+      if (!Number.isInteger(n) || n < 0 || n >= 12289) {
+        throw new Error(
+          `ZKNOX_HashToPointExposed.compute for ${entry.id}: coefficient[${i}] = ${String(v)} out of range [0, 12289)`,
+        );
+      }
+      expectedHash[i] = n;
+    }
+    vectors.push({
+      id: entry.id,
+      salt: saltHex,
+      message: msgHex,
+      expectedHash,
+    });
+  }
+
+  const fixture: HashToPointVectorsFileLocal = {
+    scheme: "falcon-eth",
+    gate: "G2-hashtopoint",
+    submoduleSource: "ethfalcon",
+    submoduleSha,
+    generatedAt,
+    source: {
+      solContract: "ZKNOX_HashToPointExposed",
+      solFile: "contracts/imports/FalconRef.sol",
+      upstreamFile: "ETHFALCON/src/ZKNOX_HashToPoint.sol",
+      algorithm:
+        "keccak256(salt‖msg) then keccak256(state‖counter_u64) with 16-bit rejection at kq=61445, mod q=12289, n=512",
+      generator:
+        "scripts/generate-kat-fixtures.ts --scheme falcon-eth --target hashtopoint",
+    },
+    vectors,
+  };
+
+  mkdirSync(path.dirname(FALCON_HASHTOPOINT_FIXTURE), { recursive: true });
+  writeFileSync(
+    FALCON_HASHTOPOINT_FIXTURE,
+    serializeHashToPointFixture(fixture),
+    "utf8",
+  );
+
+  process.stdout.write(
+    `Wrote ${vectors.length} falcon-eth HashToPoint vectors → ${path.relative(
+      REPO_ROOT,
+      FALCON_HASHTOPOINT_FIXTURE,
+    )}\n`,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Git helpers — pin-read plumbing (AC-1-4's Task 4 finalization hooks here)
 // ---------------------------------------------------------------------------
 
@@ -2027,13 +2347,24 @@ interface PythonPrgResult {
 /**
  * Parse `--scheme <name>` out of argv. Supported values:
  *   - "mldsa-eth" (default, backward-compatible with pre-Story-1-1 CLI)
- *   - "falcon-eth" (Story 1-1 — currently runs T0 PRE_G4_DRBG_PROBE only)
+ *   - "falcon-eth" (Story 1-1 — runs T0 PRE_G4_DRBG_PROBE, T1 bulk
+ *     vectors.json, and T2 hashtopoint-vectors.json)
  *
  * Unrecognized schemes cause a non-zero exit with an operator-readable error.
  * Missing `--scheme` defaults to "mldsa-eth" so `npm run kat:regen` (without
  * flags) preserves its pre-Story-1-1 behavior byte-for-byte.
  */
 type Scheme = "mldsa-eth" | "falcon-eth";
+
+/**
+ * Narrowing flag for the falcon-eth scheme. `--target hashtopoint` emits ONLY
+ * the hashtopoint-vectors.json file (skips .rsp → vectors.json); `--target
+ * vectors` emits ONLY vectors.json (skips Hardhat deploy). The default runs
+ * BOTH — `npm run kat:regen -- --scheme falcon-eth` produces the full
+ * falcon-eth fixture corpus in one invocation, mirroring the mldsa-eth
+ * scheme's "write both files per run" convention.
+ */
+type FalconTarget = "all" | "vectors" | "hashtopoint";
 
 function parseSchemeArg(argv: readonly string[]): Scheme | "invalid" {
   for (let i = 0; i < argv.length; i++) {
@@ -2051,24 +2382,60 @@ function parseSchemeArg(argv: readonly string[]): Scheme | "invalid" {
   return "mldsa-eth";
 }
 
+function parseFalconTargetArg(
+  argv: readonly string[],
+): FalconTarget | "invalid" {
+  for (let i = 0; i < argv.length; i++) {
+    const tok = argv[i];
+    if (tok === "--target") {
+      const val = argv[i + 1];
+      if (val === "vectors" || val === "hashtopoint" || val === "all")
+        return val;
+      return "invalid";
+    }
+    if (tok !== undefined && tok.startsWith("--target=")) {
+      const val = tok.slice("--target=".length);
+      if (val === "vectors" || val === "hashtopoint" || val === "all")
+        return val;
+      return "invalid";
+    }
+  }
+  return "all";
+}
+
 /**
- * Story 1-1 Task T0 + T1 CLI branch. Runs:
+ * Story 1-1 falcon-eth CLI branch. Runs:
  *   (1) ETHFALCON preflight diagnostics (submodule init, pin, python, deps);
  *   (2) PRE_G4_DRBG_PROBE on vec 0 (A-005 audit gate);
  *   (3) T1 bulk transcription — parse all 100 .rsp records, run the single
  *       Python batch to derive reshapedPublicKey + signature, write
- *       test/fixtures/kat/falcon-eth/vectors.json.
+ *       test/fixtures/kat/falcon-eth/vectors.json (skipped when
+ *       `--target hashtopoint`);
+ *   (4) T2 HashToPoint capture — deploy ZKNOX_HashToPointExposed via Hardhat,
+ *       call `.compute()` over the deterministic N=8 corpus, write
+ *       test/fixtures/kat/falcon-eth/hashtopoint-vectors.json (skipped when
+ *       `--target vectors`).
  *
- * T2 (hashtopoint-vectors.json via Hardhat-deployed ZKNOX_HashToPointExposed)
- * lands in a subsequent commit.
+ * The HashToPoint generator runs LAST — if it fails (e.g., artifact missing
+ * from a stale `cache/`), the T1 vectors.json write is already complete and
+ * can be inspected independently. Hardhat-triggered recompile at import
+ * time is an idempotent side effect.
  */
-function mainFalconEth(): number {
+async function mainFalconEth(target: FalconTarget): Promise<number> {
   if (!runEthfalconPreflightDiagnostics()) {
     return 1;
   }
   try {
+    // T0 probe is load-bearing for BOTH downstream targets — the A-005
+    // DRBG-state-reproducibility invariant gates any falcon-eth fixture
+    // output, not just vectors.json. Always run.
     preG4DrbgProbe();
-    writeFalconEthFixture();
+    if (target === "all" || target === "vectors") {
+      writeFalconEthFixture();
+    }
+    if (target === "all" || target === "hashtopoint") {
+      await writeFalconHashToPointFixture();
+    }
   } catch (err) {
     if (err instanceof FixtureGenError) {
       process.stderr.write(
@@ -2088,8 +2455,9 @@ function mainFalconEth(): number {
   return 0;
 }
 
-function main(): number {
-  const scheme = parseSchemeArg(process.argv.slice(2));
+async function main(): Promise<number> {
+  const argv = process.argv.slice(2);
+  const scheme = parseSchemeArg(argv);
   if (scheme === "invalid") {
     process.stderr.write(
       JSON.stringify({
@@ -2101,7 +2469,18 @@ function main(): number {
     return 1;
   }
   if (scheme === "falcon-eth") {
-    return mainFalconEth();
+    const target = parseFalconTargetArg(argv);
+    if (target === "invalid") {
+      process.stderr.write(
+        JSON.stringify({
+          code: "INVALID_TARGET",
+          message:
+            "Unrecognized --target value. Supported: 'all' (default), 'vectors', 'hashtopoint'.",
+        }) + "\n",
+      );
+      return 1;
+    }
+    return mainFalconEth(target);
   }
 
   // Step 0: AC-U-2 pre-flight diagnostics (Task 4). Covers SUBMODULE_UNINIT,
@@ -2284,4 +2663,8 @@ function main(): number {
   return 0;
 }
 
-process.exitCode = main();
+// Top-level await: main() is now async because the falcon-eth --target
+// hashtopoint branch uses `await import("hardhat")` + async viem deploy.
+// The mldsa-eth path stays synchronous internally; `await main()` resolves
+// immediately in that case.
+process.exitCode = await main();
