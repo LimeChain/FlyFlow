@@ -48,10 +48,11 @@ epics:
       - id: "2-3"
         slug: signer-port
         title: "Falcon-ETH signer port + ffSampling → G4 PASS"
-        size: L
+        size: S
         status: backlog
         wave: 4
         dependencies: ["2-1", "2-2"]
+        amendments: ["A-006"]
       - id: "2-4"
         slug: integration-benchmark-readme
         title: "Integration + 5-scheme benchmark + README attribution → G5 + G6 PASS"

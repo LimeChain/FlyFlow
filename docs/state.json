@@ -3,7 +3,7 @@
   "flow": "greenfield",
   "version": "next-2.0",
   "created": "2026-04-18T18:46:16.472Z",
-  "lastUpdated": "2026-04-20T12:35:00.000Z",
+  "lastUpdated": "2026-04-20T13:30:00.000Z",
   "currentPhase": "implement",
   "currentStep": null,
   "currentCheckpoint": null,
@@ -37,7 +37,19 @@
   "storiesDone": 4,
   "storiesTotal": 6,
   "changeStories": [],
-  "currentStory": null,
+  "currentStory": {
+    "storyId": "2-3",
+    "feature": "falcon-eth",
+    "slug": "signer-port",
+    "startedAt": "2026-04-20T13:05:00.000Z",
+    "amendments": ["A-005", "A-006"],
+    "tasks": [
+      { "id": "T1", "name": "A-006 amendment + doc sweep", "status": "pending", "committed": false },
+      { "id": "T2", "name": "Fork apply + repo wiring + falcon512Eth instantiation", "status": "pending", "committed": false },
+      { "id": "T3", "name": "Signer wrappers + unit tests", "status": "pending", "committed": false },
+      { "id": "T4", "name": "G4 KAT byte-identity test", "status": "pending", "committed": false }
+    ]
+  },
   "executionStrategy": {
     "waveA": "SINGLE-SUBAGENT",
     "waveB_T1": "SINGLE-SUBAGENT",
@@ -139,9 +151,9 @@
       "findingsDeferred": 2
     },
     "quality": {
-      "interfaceAudits": 5,
+      "interfaceAudits": 6,
       "interfaceMismatches": 0,
-      "amendments": 4,
+      "amendments": 5,
       "concerns": 2,
       "concernsBySeverity": {
         "critical": 0,

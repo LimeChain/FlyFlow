@@ -355,7 +355,7 @@ Total DRBG consumption per vector: **40 + 48 = 88 bytes** (regardless of rejecti
 4. **Noble exposes `rngAesCtrDrbg256`** from `@noble/ciphers/aes.js` (first-class public export, not via `__tests`). `@noble/post-quantum/falcon.js:7` imports it; `@noble/post-quantum` uses it internally at `falcon.ts:2296` for `opts.extraEntropy`. **Byte-identical to ETHFALCON's Python `AES256_CTR_DRBG`** (vec-0 test 2026-04-20, see Evidence §5). Story 2-1 + 2-3 import it directly and derive DRBG outputs TS-side at test time.
 5. **`@noble/ciphers/chacha.js` is already installed** as a transitive dep (`node_modules/@noble/ciphers/chacha.js` present; `@noble/post-quantum/falcon.ts:8` imports from it). Story 2-3 may import `chacha20` directly if needed, but in practice the FFSampler copy-port encapsulates this.
 
-#### Story 2-3 fork inventory (locked)
+#### Story 2-3 fork inventory (locked) [**A-006 SUPERSEDES**: the 285-LOC source-transplant framing below is superseded by A-006 (Strategy E — fork-side HashToPoint injection). Algorithmic analysis (noble verbatim except HashToPoint XOF) remains correct and is the empirical basis for Strategy E, but "fork = copy these into our repo" is replaced by "fork = `~18 LOC diff on github.com/LimeChain/noble-post-quantum-eth#falcon-eth-hashtopoint-injection`; our repo instantiates `falcon512Eth = genFalcon({ ...falcon512paddedOpts, hashToPoint: hashToPointEVM })`". `__tests`-escape-hatch dependency + `~0.6.x` pin mitigation BOTH DROPPED. See `docs/amendments.md` §A-006 for full rationale + fork audit surface.]
 
 The only algorithmic divergence between noble and ETHFALCON signing is **HashToPoint's XOF** (SHAKE256 vs KeccakPRNG). Story 2-3 MUST fork noble's closure-scoped internals into `test/signers/falcon-eth.core.ts` with that single change. Noble's `signRaw`, `FFSampler`, `HashToPoint`, and `completePrivate` are NOT exported — only via a `// NOTE: for tests only, don't use` escape hatch `__tests` at `falcon.ts:2490-2503`. Fork is unavoidable.
 
@@ -384,7 +384,7 @@ The only algorithmic divergence between noble and ETHFALCON signing is **HashToP
 
 **⚠ Rule-3 API-stability dependency:** `__tests` is annotated `// NOTE: for tests only, don't use`. Any noble version bump that removes or restructures `__tests` breaks the fork. **Mitigation:** pin `@noble/post-quantum` to a narrow version range (e.g., `~0.6.x` instead of `^0.6.x`) so minor-bumps require a conscious amendment. Fallback plan: if `__tests` goes away, fork the math helpers too (+~500 LOC — still cheaper than hand-implementing Falcon float/int arithmetic). Treat noble bumps during Stories 2-3 + 2-4 as Rule-3 events.
 
-#### Surface shape
+#### Surface shape [**A-006 SUPERSEDES (partial)**: AC-4 / `signWithXofInstrumented` DROPPED — G4 byte-identity over 100 vectors subsumes the rejection-loop-exercised predicate; adding instrumentation to the fork violates the minimal-fork-diff posture. Retained from A-005: `signWithKatBytes(sk, msg, reader)` signature, `BytesReader` interface, 88 B budget, `SIGNING_BYTES_EXHAUSTED` + `INVALID_SECRET_KEY_LENGTH` + `INVALID_MESSAGE`; AC-1 / AC-6 reinterpretations. See `docs/amendments.md` §A-006 "AC-4 drop rationale" + "Supersession scope".]
 
 - **KAT surface (binding):** `signWithKatBytes(sk: Uint8Array, msg: Uint8Array, reader: BytesReader): Uint8Array` returning 1064 B `header(1) ‖ salt(40) ‖ s2_compact(1023)`. Reader is sourced TS-side: `const drbg = rngAesCtrDrbg256(hexToBytes(v.drbgSeed)); drbg.randomBytes(48); const reader = { read: (n) => drbg.randomBytes(n) };` — advances the DRBG past keygen's inner_seed draw, then yields the 88 B (40 + 48) signer randomness through sequential `read(40)` + `read(48)` calls driven by noble's forked `signRaw`. **Reader MUST enforce: on `read(n)` beyond the expected 88 B total, throw `SIGNING_BYTES_EXHAUSTED` — indicates TS signer divergence from the canonical flow.**
 - **Production surface:** `signUserOp(...)` wraps `globalThis.crypto.getRandomValues` into a `BytesReader`. Reader allocates 88 B upfront, fills via CSPRNG, yields on sequential reads. Same forked signer path.
@@ -458,7 +458,7 @@ When the story-creator for 2-3 runs (wave 4, after 2-1 closes), it MUST:
 - **ACs retained from plan (reinterpreted):**
   - **AC-1 (G3 KAT):** byte-identity over ≥100 vectors — unchanged. Input to `keygenInternal` is the 48 B `innerSeed` DERIVED at test time via `rngAesCtrDrbg256(hexToBytes(v.drbgSeed)).randomBytes(48)`. Output comparison unchanged.
   - **AC-2 (Production surface hedging):** unchanged — `keygen()` entropy-sourced, two calls produce different keys.
-  - **AC-3 (Input validation):** reinterpreted — `keygenInternal` throws `SignerInputError { code: "INVALID_INNER_SEED_LENGTH" }` on non-48-byte input. The error code name changes (`INVALID_DRBG_SEED_LENGTH` → `INVALID_INNER_SEED_LENGTH`) to reflect what the parameter actually is.
+  - **AC-3 (Input validation):** reinterpreted — `keygenInternal` throws `SignerInputError { code: "INVALID_INNER_SEED_LENGTH" }` on non-48-byte input. The error code name changes (`INVALID_DRBG_SEED_LENGTH` → `INVALID_INNER_SEED_LENGTH`; the plan.md `INVALID_DRBG_SEED_LENGTH` name is superseded here) to reflect what the parameter actually is.
   - **AC-4 (Module-header structural check):** dropped — no delta-from header required.
   - **AC-5 (Grep gates):** reduced — only the `KAT_INTERNAL_MODULES` import check (`test/signers/index.ts` + `test/bench/**/*.ts` must not import `falcon-eth.kat-internal`). `(let|var) _?xof` dropped.
   - **AC-6 (Interface):** reduced — `falcon-eth.ts` exports `keygen()`; `falcon-eth.kat-internal.ts` exports `keygenInternal(innerSeed)`. Neither imports the other. No `core` module.
@@ -483,7 +483,7 @@ Proposal lands at Gate 5 of Story 2-1 via `[L] Apply fixes + learn` (or equivale
 
 ### Downstream implications
 
-- **Story 2-3 (signer):** scope LIKELY SHRINKS L → M. Noble source audit (2026-04-20, documented in "Noble alignment discovery" above) shows noble's `signRaw` + `FFSampler` + `HashToPoint` implement the ETHFALCON flow **verbatim except for HashToPoint's XOF**. Story 2-3 is therefore a ~285-LOC source-transplant fork with a single algorithmic change (HashToPoint call-site → `hashToPointEVM`), not a ground-up Gaussian sampler port. The rejection-sampling ChaCha20 pipeline is already in noble. Noble's `__tests` escape hatch exposes all required math helpers; Story 2-3 imports them rather than re-implementing. Net: 2-3 story-creator should size at M. The "L" in plan.md reflects the original "hybrid-fork from scratch" framing which is superseded by this amendment.
+- **Story 2-3 (signer):** scope LIKELY SHRINKS L → M. [**A-006 SUPERSEDES**: actual size is **S**, not M. Strategy-E fork-side HashToPoint injection reduces Story 2-3's TS delta to ~18 LOC in the fork at `github.com/LimeChain/noble-post-quantum-eth#falcon-eth-hashtopoint-injection` + ~250 LOC of thin wrappers in our repo (no 285-LOC source-transplant, no `__tests` dependency). See `docs/amendments.md` §A-006.] Noble source audit (2026-04-20, documented in "Noble alignment discovery" above) shows noble's `signRaw` + `FFSampler` + `HashToPoint` implement the ETHFALCON flow **verbatim except for HashToPoint's XOF**. Story 2-3 is therefore a ~285-LOC source-transplant fork with a single algorithmic change (HashToPoint call-site → `hashToPointEVM`), not a ground-up Gaussian sampler port. The rejection-sampling ChaCha20 pipeline is already in noble. Noble's `__tests` escape hatch exposes all required math helpers; Story 2-3 imports them rather than re-implementing. Net: 2-3 story-creator should size at M. The "L" in plan.md reflects the original "hybrid-fork from scratch" framing which is superseded by this amendment.
 - **Story 2-4 (integration + benchmark):** unaffected.
 - **Stories 1-2 (Keccak-PRG) and 2-2 (HashToPoint):** unaffected. Both remain load-bearing for the signer path.
 
@@ -495,3 +495,181 @@ Proposal lands at Gate 5 of Story 2-1 via `[L] Apply fixes + learn` (or equivale
 - Upstream retrospect rule **carried from** `.claude/rules/retrospect/universal.md` §"[2026-04-18] Amendment doc sweep — don't leak the old shape": this amendment's doc sweep is exactly that rule's prescribed action. The architecture/plan/story texts that implied TS-side DRBG re-port are stale and are corrected here.
 - **NEW retrospect candidate** documented above ("library-first vs port-first"): proposed at Gate 5 via `[L] Apply fixes + learn` if code-review surfaces the knowledge gap. Story 2-1's three-design journey (L NTRU fork → S fixture-recorder → S library-wrapper) is strong evidence for the rule.
 - Plan/architecture phrasing is **superseded** by this amendment for all Gate-5 verification, code-review, and downstream-story-creation purposes (Stories 2-1 T2/T3, 2-3, 2-4).
+
+---
+
+## A-006: Strategy E — fork-side HashToPoint injection supersedes 285-LOC source-transplant + drops `signWithXofInstrumented`
+
+- **Stories:** 2-3 (`signer-port`) — primary; supersedes A-005's "Story 2-3 fork inventory" + "Surface shape" + "Downstream implications → Story 2-3" for the Story-2-3 scope. Downstream: 2-4 (consumes `falcon512Eth` + `signWithKatBytes` + `signUserOp` unchanged). Future ml-dsa-eth migration to the same fork is explicitly out-of-scope here (separate ops task per user 2026-04-20 instruction).
+- **Task:** Story 2-3 T1 (this commit).
+- **Date:** 2026-04-20.
+- **Classification:** Rule 3 (Significant — A-005's "Story 2-3 fork inventory" interface contract is superseded here; introduces a `git+ssh://` branch-pin dependency on a private fork of `@noble/post-quantum`; `signWithXofInstrumented` is DROPPED from Story 2-3's plan.md surface (AC-4 removed)). Strategy E reduces the Story 2-3 TS delta from ~285 LOC (A-005 source-transplant) to ~18 LOC on the fork + ~250 LOC thin wrappers in our repo. Fork-vs-upstream diff is bounded at ≤25 insertions+deletions combined.
+- **Affects:**
+  - `docs/amendments.md` §A-005 "Story 2-3 fork inventory" (line ~358) — inline A-006 supersession callout.
+  - `docs/amendments.md` §A-005 "Surface shape" (line ~387) — inline A-006 supersession callout (AC-4 dropped; surface reduced to Strategy-E scope).
+  - `docs/amendments.md` §A-005 "Downstream implications" Story 2-3 bullet (line ~486) — inline A-006 supersession callout (actual size: S, not M).
+  - `docs/plan.md` §"Story 2-3" header (lines 130-133) — inline A-006 callout (supersedes task list + AC list + `signWithXofInstrumented` references + DD-10 `XofFactory` parameterization stance).
+  - `docs/architecture.md` line 197-198 (G3 + G4 row surfaces) — inline A-006 callouts on the G4 row (fork-side HashToPoint injection replaces source-transplant framing).
+  - `docs/sprint-status.yaml` — Story 2-3 `size: L` → `size: S`; `amendments: ["A-006"]` added.
+  - `docs/state.json` — `metrics.quality.amendments` 4 → 5; `currentStory.amendments` includes `"A-006"`; `lastUpdated` bumped.
+  - Nothing under `test/`, `scripts/`, `contracts/`, or `package.json` is touched by T1 — those are T2/T3/T4's scope.
+
+### Evidence
+
+1. **Design B spike results (2026-04-20):** noble's `signRaw` (`src/falcon.ts:2159-2250`) + `FFSampler` (`src/falcon.ts:1781-~1940`) + `completePrivate` helper implement the ETHFALCON reference algorithm (`ETHFALCON/pythonref/falcon.py:442-495`) **verbatim EXCEPT for `HashToPoint`'s XOF**. Noble hardcodes `shake256.create().update(nonce).update(msg)` at the HashToPoint inner function defined inside `genFalcon` (`src/falcon.ts:1752-1779`); ETHFALCON uses `KeccakPRNG`-driven HashToPoint, byte-compatible with Story 2-2's `hashToPointEVM` (G2 KAT). **HashToPoint is a factory-scope closure binding, not a closure-private helper reached via `__tests`.** The two call sites inside `genFalcon`'s body — `signRaw` at line 2191 (`const hm = HashToPoint(nonce, msg);`) and `verifyRaw` at line 2274 (`const hm = HashToPoint(nonce, msg);`) — resolve the name `HashToPoint` against whichever definition is bound at factory-construction time. Replacing its binding via `opts.hashToPoint ?? <original function>` requires **zero changes to the two call sites**. Confirmed empirically by the 2026-04-20 Design-B spike: a 17-LOC diff to `src/falcon.ts` (type decl + FalconOpts extension + ternary binding + `export { genFalcon }` + new `export const falcon512paddedOpts`) + 1-LOC `"prepare": "tsc"` in fork's `package.json` → `falcon512Eth = genFalcon({ ...falcon512paddedOpts, hashToPoint: hashToPointEVM })` instantiation produces byte-identical signatures to ETHFALCON on vec-0 of `ethfalcon512-KAT.rsp`.
+
+2. **Fork diff bound (empirical, 2026-04-20):** expected diff vs `upstream/main` on the fork at `/Users/steven/dev/noble-post-quantum-eth`, branch `falcon-eth-hashtopoint-injection`:
+   - **`src/falcon.ts`** (~17 LOC):
+     - +3 LOC: `type HashToPointFn = (nonce: Uint8Array, msg: Uint8Array) => Uint16Array;` near the `FalconOpts` type decl (~line 1184).
+     - +1 LOC: `hashToPoint?: HashToPointFn;` added to the `FalconOpts` type (one field).
+     - ~8 LOC CHANGE: the existing `function HashToPoint(nonce, msg): TRet<IPoly> { ... }` inside `genFalcon` (lines 1752-1779) becomes `const HashToPoint = opts.hashToPoint ?? function HashToPoint(nonce, msg) { /* existing 27 LOC body unchanged */ };` — the body is preserved verbatim; only the binding wrapper changes.
+     - +1 LOC: `export { genFalcon };` near line 2424 (existing `export const falcon512` block).
+     - +1 LOC: `export const falcon512paddedOpts = { ...falcon512opts, padded: true, maxS2Len: 625 };` immediately before the `falcon512padded` construction at line 2437-2441. Do NOT also export the base `falcon512opts` (unused by our repo). Do NOT refactor noble's own `falcon512padded` to consume the new const (keep fork diff minimal).
+   - **`package.json`** (+1 LOC): `"prepare": "tsc"` added to the `scripts` section.
+   - **Total:** ≤25 insertions+deletions combined (18 expected; 25 is the Gate-5 bound). Audit trail at Gate 5: `git -C /Users/steven/dev/noble-post-quantum-eth diff upstream/main..falcon-eth-hashtopoint-injection --shortstat`.
+
+3. **Fork dist check (2026-04-20):** the GitHub repo `paulmillr/noble-post-quantum` gitignores compiled JS output (`/*.js`, `*.d.ts` entries in `.gitignore`). Spot-check: `https://raw.githubusercontent.com/paulmillr/noble-post-quantum/main/esm/falcon.js` → HTTP 404 (no compiled dist shipped via git). Consumers of `git+ssh://` deps need the fork's `package.json` to carry `"prepare": "tsc"` so that `npm install` auto-builds the dist into the consumer's `node_modules/@noble/post-quantum/esm/*`. Without `prepare`, the consumer's `import { genFalcon } from "@noble/post-quantum/falcon.js"` would fail to resolve at test time. `"prepare"` in the fork runs on `npm install <git-dep>` per the npm packaging spec.
+
+4. **Encoding delta is already handled (Story 2-2 T6, landed pre-2-3).** Noble's native `falcon512padded.sign` returns 666 B (`header(1) || salt(40) || enc_s(625)` — the ETHFALCON-compatible padded-compress format). ETHFALCON's `.rsp` fixture layout is 1064 B `salt(40) || s2_compact(1024)` (verified in `scripts/generate-kat-fixtures.ts:1310-1337` — the fixture-gen pipeline decompresses Python's `enc_s`, normalizes mod-q, runs `falcon_compact`, and writes 1064 B into `vectors.json#signature`). The existing `encodeSignatureForZKNOX` helper at `test/signers/falcon-encoding.ts:159` (built for Story 2-2's pk/sig symmetry tests, landed pre-2-3) performs exactly the 666 B → 1064 B transform: decompress `enc_s`, normalize each coefficient mod q, run `falcon_compact` packing, emit `0x` + 2128 hex chars. Story 2-3 consumes this helper as-is; no new encoding code.
+
+### Design B diff sketch (fork-side)
+
+The full fork change, annotated with upstream line anchors (as of the fork's branch point `upstream/main` on 2026-04-20):
+
+```ts
+// src/falcon.ts — near the FalconOpts type (~line 1180-1190)
+
+// NEW (+3 LOC):
+type HashToPointFn = (nonce: Uint8Array, msg: Uint8Array) => Uint16Array;
+
+// EXTEND FalconOpts (+1 field, no removal):
+type FalconOpts = {
+  // ... existing 7 fields unchanged ...
+  hashToPoint?: HashToPointFn;
+};
+
+// Inside genFalcon(opts) body, replacing the existing HashToPoint function
+// at lines 1752-1779 (~8 LOC change — pattern: default-ternary around the
+// existing 27 LOC body). Closure vars N and Q still resolve from genFalcon
+// scope. The injected function, if provided, captures them via lexical
+// closure at the caller's instantiation site OR accepts them as implicit
+// constants (our hashToPointEVM hard-codes N=512, Q=12289, correct for
+// Falcon-512 — the only parameter set we instantiate as falcon512Eth).
+const HashToPoint = opts.hashToPoint ?? function HashToPoint(
+  nonce: TArg<Uint8Array>,
+  msg: TArg<Uint8Array>,
+): TRet<IPoly> {
+  // ... existing 27 LOC body verbatim (shake256 cascade) ...
+};
+
+// NEW (+1 LOC) near line 2424 (existing `export const falcon512` block):
+export { genFalcon };
+
+// NEW (+1 LOC) immediately before the `falcon512padded` construction at
+// lines 2437-2441. Factors out noble's inline `{ ...falcon512opts, padded:
+// true, maxS2Len: 625 }` so our falcon512Eth can spread it. Do NOT also
+// export the base falcon512opts (unused by our repo). Do NOT refactor
+// noble's own `falcon512padded = genFalcon({ ...falcon512opts, padded:
+// true, maxS2Len: 625 })` to consume the new const — keep fork diff
+// minimal so the upstream-merge surface is as small as possible.
+export const falcon512paddedOpts = { ...falcon512opts, padded: true, maxS2Len: 625 };
+```
+
+```jsonc
+// fork's package.json — "scripts" section (+1 LOC)
+{
+  "scripts": {
+    // ... existing entries ...
+    "prepare": "tsc"
+  }
+}
+```
+
+**Why both exports (`genFalcon` AND `falcon512paddedOpts`), and not the base `falcon512opts`:** our repo's `falcon512Eth = genFalcon({ ...falcon512paddedOpts, hashToPoint: hashToPointEVM })` needs the factory + the ETHFALCON-compatible opts bundle (`padded: true` + `maxS2Len: 625` — the Falcon-ETH rejection bound matches Python's `compress(s[1], sig_bytelen - HEAD_LEN - SALT_LEN) = compress(s[1], 625)` at `ETHFALCON/pythonref/falcon.py:474`). Exposing `falcon512paddedOpts` as a single named const keeps our repo magic-number-free (no `maxS2Len: 625` hardcode in `test/signers/falcon-eth.core.ts`). The base `falcon512opts` uses `maxS2Len: 711` and `padded: false` — a different rejection-loop acceptance criterion that would produce divergent s2 polynomials and break G4 byte-identity if accidentally consumed. Not exporting `falcon512opts` prevents that footgun.
+
+### falcon512Eth consumption contract (our repo)
+
+```ts
+// test/signers/falcon-eth.core.ts (appended in Story 2-3 T2, Step B)
+
+import { genFalcon, falcon512paddedOpts, type Falcon } from "@noble/post-quantum/falcon.js";
+
+// hashToPointEVM is defined earlier in the same file (Story 2-2 landed it).
+// Signature: (nonce: Uint8Array, msg: Uint8Array) => Uint16Array — matches
+// HashToPointFn from the fork.
+
+export const falcon512Eth: Falcon = genFalcon({
+  ...falcon512paddedOpts,     // inherits padded: true + maxS2Len: 625 from the fork
+  hashToPoint: hashToPointEVM, // Story 2-2's Keccak-PRG-driven HashToPoint (G2 KAT)
+});
+```
+
+This single 3-statement block (plus import + JSDoc) IS the whole "port" of the signer into our repo. `signRaw`, `FFSampler`, `HashToPoint`, and `completePrivate` are NOT duplicated — they live in the fork and execute against the injected `hashToPoint` at signing time. `signWithKatBytes` (Story 2-3 T3) is a thin wrapper: validate inputs, route `falcon512Eth.sign(msg, sk, { random: guardedRandom })`, re-encode 666 B → 1064 B via `encodeSignatureForZKNOX`. No new cryptographic code.
+
+### AC-4 drop rationale
+
+Plan.md's Story 2-3 AC-4 requires `signWithXofInstrumented(sk, msg, salt, xof)` — a rejection-counter variant returning `{ signature, iterations }`. A-006 drops this:
+
+1. **G4 byte-identity (AC-1) subsumes the "rejection loop exercised" structural guarantee.** If the rejection loop does not engage at the reference's rate (e.g., a Gaussian sampler off-by-one, a wrong HashToPoint XOF output, a bad `maxS2Len` threshold that short-circuits iterations), the output signature bytes diverge on the specific vectors where the reference's rejection count >1. G4 runs over ≥100 vectors; any iteration-count-sensitive bug manifests as a byte divergence well before AC-4's structural check would. The two ACs are not independent — AC-4 is a weaker predicate than AC-1.
+2. **Noble itself does not ship equivalent instrumentation.** Adding a `signRawInstrumented` variant to the fork would inflate the fork diff beyond the 18-LOC "minimal fork change" posture, contradicting A-006's Evidence §2 bound. The fork's purpose is the HashToPoint injection seam, nothing else.
+3. **Retained escape hatch:** if G4 fails on >1 vector mid-story (AC-6 points to the two likely failure modes), a focused `signRawInstrumented` export can be added to the fork as a separate debug commit — the fork is ours, we control its branch. This is a reactive diagnostic tool, not a proactive structural test. Story 2-3's scope does not preempt it.
+
+`INVALID_DRBG_SEED_LENGTH` (plan.md Story 2-3 AC-5) is also DROPPED by inheritance (superseded by A-006): the new KAT surface `signWithKatBytes(sk, msg, reader)` does not accept a raw `drbgSeed`; validation of the seed length belongs to `rngAesCtrDrbg256`'s contract inside `@noble/ciphers`, not to our wrapper. The wrapper retains `INVALID_SECRET_KEY_LENGTH` + `INVALID_MESSAGE` + `SIGNING_BYTES_EXHAUSTED` (A-005 Surface Shape's reduced error set).
+
+### Fork hosting + branch-pin
+
+- **Repository:** `github.com/LimeChain/noble-post-quantum-eth` (private — `git+ssh://` consumption relies on the developer's GitHub SSH key having read access to the LimeChain org; CI deploy-key setup is out of story scope).
+- **Local clone:** `/Users/steven/dev/noble-post-quantum-eth`.
+- **Branch:** `falcon-eth-hashtopoint-injection` (upstream remote `https://github.com/paulmillr/noble-post-quantum.git` registered as `upstream`).
+- **`package.json` pin (our repo):** `"@noble/post-quantum": "git+ssh://git@github.com/LimeChain/noble-post-quantum-eth.git#falcon-eth-hashtopoint-injection"` — **branch ref, not SHA**. Rationale: per user 2026-04-20 instruction, the fork is in work-in-progress posture during Stories 2-3 + 2-4; branch-ref pinning lets the implementer advance the branch in place (e.g., add `signRawInstrumented` as a focused debug commit if G4 regresses) without a `package.json` churn on every fork commit. `package-lock.json` captures the resolved SHA per `npm install`, providing a lockfile-level audit trail. SHA-pinning the `package.json` is a future hardening step (post-Story 2-4) — a Rule-3 amendment will follow when the fork goes read-only.
+- **No merge to fork's `main`:** work stays on the feature branch indefinitely. `main` tracks `upstream/main` for future sync; fork CI is not configured for this story.
+- **Two-repo commit cadence (T2 executes this):** the implementer (a) applies Design B on the fork clone locally, (b) commits on the fork's `falcon-eth-hashtopoint-injection` branch with message `feat(falcon): HashToPoint factory-level injection for ETH-variant fork`, (c) **does NOT run `git push`** — hands control to the user for `git -C /Users/steven/dev/noble-post-quantum-eth push origin falcon-eth-hashtopoint-injection`. The pqc-4337-laim-side commit lands the `package.json` pin + `falcon512Eth` instantiation separately, after the user confirms the fork branch is pushed.
+
+### Forward contract for Story 2-4
+
+Story 2-4 (integration + 5-scheme benchmark + README) consumes `falcon512Eth` + `signWithKatBytes` + `signUserOp` from Story 2-3 **unchanged**. No fork-side changes between 2-3 and 2-4. Specifically:
+
+- 2-4 does NOT re-instantiate `falcon512Eth` — the single instance exported from `test/signers/falcon-eth.core.ts` is the dispatcher's entry point.
+- 2-4's `preparePublicKeyForDeployment` + `pkToNttCompact` consume the existing `reshapedPublicKey` fixture field and the G2-verified `hashToPointEVM`; they do not touch the fork.
+- 2-4's G6 on-chain `validateUserOp` consumes `signUserOp`'s `PackedUserOperation.signature` bytes unchanged.
+- 2-4's 5-scheme bench registry registers `falcon-eth` by adding a deployer entry to `SCHEME_DEPLOYERS`; the `signUserOp` call path is unchanged.
+
+**ml-dsa-eth fork migration:** explicitly deferred per user 2026-04-20 instruction. Current state: ml-dsa-eth's `ml_dsa44` / `ml_dsa65` / `ml_dsa87` imports from `@noble/post-quantum/ml-dsa.js` continue to resolve unchanged post-T2-pin because the fork is a strict superset of upstream (adds `hashToPoint?` as OPTIONAL in `FalconOpts`, adds `genFalcon` + `falcon512paddedOpts` exports — nothing removed, no ML-DSA files touched). Whether to consolidate ml-dsa-eth onto the same fork (one dep) or keep them separate (fork for falcon-eth, upstream via alias for ml-dsa-eth) is a future ops decision; not bundled into Story 2-3.
+
+### Retrospect candidate
+
+Propose a new universal rule: **"Library injection seams > source transplants."** At story creation time (and at code-review time for stories already in implementation), for every story with the shape "port algorithm X from library Y", FIRST check whether Y already exposes an injection seam — a factory option, a callable hook, a strategy-pattern slot, a closure-scoped binding that can be swapped via `opts.X ?? <original>` — **before** committing to a source-transplant. Injection seams keep the algorithmic divergence contained to a single upstream-friendly opening; source transplants duplicate the surrounding code (hundreds of LOC, often) along with the one line that actually changed.
+
+**Why:** the Story 2-3 scope trajectory — A (285-LOC source-transplant per A-005) → B (2500-LOC vendored copy of `@noble/post-quantum`) → C (upstream PR, assessed unlikely to land) → E (18-LOC fork diff, Strategy E) — shows that investing ~20 minutes in an injection-seam spike before the story starts can collapse scope by >15×. Each pivot between A/B/C cost real time (re-reading `src/falcon.ts`, proposing alternatives, invalidating work-in-progress scaffolding). A single upfront pass of `grep -n "^const .* = opts\." node_modules/<lib>/src/*.ts` would have surfaced the binding pattern at line 1752 — where the closure-scoped function was ready to be swapped — before A-005 locked in the 285-LOC fork inventory.
+
+**How to apply:** for every "port X from Y" task at story creation or code-review time, run the injection-seam checklist:
+
+1. Does Y's factory accept an optional callable for X? (`opts.X?: (...) => ...`)
+2. Does Y define X as a closure-local binding reachable by a pattern edit of shape `const X = opts.X ?? <default>`?
+3. Does Y expose X via an extension point — strategy registration, plugin hook, adapter interface?
+4. If any of the above is true, propose a minimal fork that opens the seam (ideally ≤25 LOC diff vs upstream) + consume Y-via-fork + the injected X.
+5. Only if none of the above is true, escalate to a source-transplant (A-005-shape fork) or vendoring (full copy).
+
+Lands at Gate 5 of Story 2-3 via `[L] Apply fixes + learn` if code-review surfaces the knowledge gap. Story 2-1's A-005 "library-first vs port-first" retrospect candidate is the natural prior for this rule — the two are complementary (library-first checks for byte-identical library exports; injection-seams checks for extension points within the existing library).
+
+### Supersession scope
+
+A-006 supersedes the following prior documents and contracts:
+
+- **`docs/amendments.md` §A-005 "Story 2-3 fork inventory (locked)"** (~line 358): the 285-LOC copy-target table (`HashToPoint`, `FFSampler`, `signRaw`, `completePrivate` columns) is fully superseded. The algorithmic analysis in that section (noble verbatim except HashToPoint XOF) remains correct and is the empirical basis for Strategy E; only the "fork = copy these into our repo" framing is superseded. The `__tests`-escape-hatch dependency + the `~0.6.x` narrow-pin mitigation are both dropped — Strategy E depends on the fork's own exports (`genFalcon`, `falcon512paddedOpts`), not on upstream's `__tests`.
+- **`docs/amendments.md` §A-005 "Surface shape"** (~line 387): partially superseded for Story 2-3. **Retained:** DRBG derivation contract (`rngAesCtrDrbg256` reader pattern, 88 B budget decomposition as 40 B salt + 48 B seed); `BytesReader` interface; `signWithKatBytes(sk, msg, reader)` signature; AC-1 (G4 KAT) reinterpretation; AC-6 (PRE_G4_DRBG_PROBE composition) reinterpretation; `INVALID_SECRET_KEY_LENGTH` + `INVALID_MESSAGE` + `SIGNING_BYTES_EXHAUSTED` + `SIGNING_BYTES_SHORT` error-code set. **Dropped:** AC-4 (`signWithXofInstrumented`) — see "AC-4 drop rationale" above.
+- **`docs/amendments.md` §A-005 "Downstream implications → Story 2-3"** (~line 486): the "scope LIKELY SHRINKS L → M" prediction is superseded by A-006. Actual size: **S** (4 tasks, ~250 LOC in our repo + ~18 LOC in the fork). The "~285-LOC source-transplant fork with a single algorithmic change" framing is replaced by the Strategy-E fork-side injection framing.
+- **`docs/plan.md` §"Story 2-3"** (lines ~130-155): task list (T1-T4 hybrid-fork state machine, `signWithDrbgRnd` KAT surface, `signWithXofInstrumented` sibling, `signUserOp` production) is superseded by Story 2-3's final task decomposition (T1 = this amendment; T2 = fork apply + repo wiring; T3 = wrappers + unit tests; T4 = G4 KAT). AC-4 (`signWithXofInstrumented`) dropped; AC-5's `INVALID_DRBG_SEED_LENGTH` dropped (replaced by `SIGNING_BYTES_EXHAUSTED`); AC-7's interface signatures (`signWithXof`, `signWithXofInstrumented`, `signWithDrbgRnd`) replaced by (`falcon512Eth`, `signWithKatBytes`, `signUserOp`).
+- **`docs/plan.md` DD-10 XofFactory parameterization stance**: superseded for Story 2-3. Strategy E instantiates a single `falcon512Eth` factory with a single injected `hashToPoint`; no runtime XOF swap, no `XofFactory`-shaped parameterization in our repo. The DD-10 rationale (keygen vs sign factory separation) remains valid for keygen (Story 2-1 uses SHAKE256 directly via `falcon512.keygen`); only the signer-path XofFactory carveout is dropped.
+
+Historical A-005 text is **preserved in place** as an audit trail (per `.claude/rules/retrospect/universal.md` §"[2026-04-18] Amendment doc sweep — don't leak the old shape" — callouts redirect future readers forward, without deleting the A-005 audit trail). The supersession scope above is the authoritative list for Gate-5 verification, code-review, and downstream-story-creation purposes (Stories 2-3 T2/T3/T4, 2-4).
+
+### Resolution
+
+- This A-006 amendment lands in `docs/amendments.md` in Story 2-3's T1 commit (2026-04-20).
+- `docs/amendments.md` §A-005 receives three inline A-006 callouts (at "Story 2-3 fork inventory", "Surface shape", and "Downstream implications → Story 2-3" — historical text preserved, callouts redirect forward).
+- `docs/plan.md` §"Story 2-3" header carries an inline A-006 callout.
+- `docs/architecture.md` G4 row (line 198) carries an inline A-006 callout (G3 row at line 197 keeps A-005's callout unchanged — G3 is not in A-006's scope).
+- `docs/sprint-status.yaml` Story 2-3: `size: L` → `size: S`; `amendments: ["A-006"]`.
+- `docs/state.json`: `metrics.quality.amendments` 4 → 5; `currentStory.amendments` includes `"A-006"`; `lastUpdated` bumped.
+- Plan/architecture phrasing for Story 2-3 is **superseded** by this amendment for all Gate-5 verification, code-review, and downstream-story-creation purposes (Stories 2-3 T2/T3/T4, 2-4).
