@@ -418,6 +418,49 @@ describe("KAT loader — real-fixture happy paths (AC-1, AC-2)", () => {
     }
   });
 
+  // Story 2-1 Task T1 (A-005) — loader coverage for the innerSeed +
+  // signingDrbg fixture-schema extension. Together with the existing "loads
+  // 100 falcon-eth KAT vectors with correct field shapes" test, these close
+  // AC-7 loader-side coverage.
+
+  it("loads innerSeed (48 B / 98 hex chars incl. 0x-prefix) for every falcon-eth vector (AC-7, A-005)", () => {
+    const vectors = loadKatVectors("falcon-eth");
+    assert.equal(vectors.length, 100, "expected exactly 100 falcon-eth vectors");
+    for (const v of vectors) {
+      assert.equal(
+        v.innerSeed.length,
+        2 + 48 * 2,
+        `vec ${v.id} innerSeed hex length ${v.innerSeed.length} != 98`,
+      );
+      assert.match(
+        v.innerSeed,
+        /^0x[0-9a-f]{96}$/,
+        `vec ${v.id} innerSeed must be lowercase hex with 0x prefix`,
+      );
+    }
+  });
+
+  it("loads signingDrbg (non-empty, even hex length, 0x prefix) for every falcon-eth vector (AC-7, A-005)", () => {
+    const vectors = loadKatVectors("falcon-eth");
+    assert.equal(vectors.length, 100, "expected exactly 100 falcon-eth vectors");
+    for (const v of vectors) {
+      assert.ok(
+        v.signingDrbg.length > 2,
+        `vec ${v.id} signingDrbg must be non-empty (≥40 B salt); got length ${v.signingDrbg.length}`,
+      );
+      assert.equal(
+        v.signingDrbg.length % 2,
+        0,
+        `vec ${v.id} signingDrbg hex length ${v.signingDrbg.length} must be even`,
+      );
+      assert.match(
+        v.signingDrbg,
+        /^0x[0-9a-f]+$/,
+        `vec ${v.id} signingDrbg must be lowercase hex with 0x prefix`,
+      );
+    }
+  });
+
   it("loads 100 mldsa-eth KAT vectors (ensures T4 backfill left the corpus readable)", () => {
     const vectors = loadKatVectors("mldsa-eth");
     assert.equal(vectors.length, 100);

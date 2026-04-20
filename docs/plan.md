@@ -77,7 +77,7 @@ architecture: docs/architecture.md
 
 ## Epic 2: TS Port + Signer + Integration
 
-### Story 2-1: `core + keygen port` [L]
+### Story 2-1: `core + keygen port` [L] [**A-005**: resized L → S; see `docs/amendments.md` §A-005. This entire section is superseded by A-005's "Impact on Story 2-1" block — tasks, ACs, and the "XOF-factory abstraction" framing all change. Story 2-1 is a thin wrapper around `@noble/post-quantum/falcon.js#falcon512.keygen(innerSeed)`; no NTRU fork, no XOF factory, no `falcon-eth.core.ts`. See the amended story file at `docs/stories/2-1.md` for the binding shape.]
 
 **User Story:** As a signer-catalogue maintainer, I want Falcon-ETH keygen ported to TypeScript with the XOF-factory abstraction, so that G3 passes byte-identity against the NIST-KAT `.rsp` over ≥100 vectors.
 
@@ -127,7 +127,7 @@ architecture: docs/architecture.md
 
 ---
 
-### Story 2-3: `signer port + G4` [L]
+### Story 2-3: `signer port + G4` [L] [**A-005**: surface-shape superseded; see `docs/amendments.md` §A-005 "Forward contract for Story 2-3". The KAT signer takes a `BytesReader` over the fixture's `signingDrbg` blob, NOT a `drbgSeed` that is replayed in TS. Function-name suggestions + error-code shape documented in A-005. `AES-CTR-DRBG` is NOT ported — DRBG lives in Python at fixture-gen per `docs/architecture.md:33+90`. Tasks, ACs referencing `signWithDrbgRnd(drbgSeed)` + `INVALID_DRBG_SEED_LENGTH` below are stale; story-creator for 2-3 (wave 4) must treat A-005 as the binding interpretation.]
 
 **User Story:** As a signer-catalogue maintainer, I want Falcon-ETH signing ported to TypeScript using the hybrid-fork approach (noble math + Keccak-PRG samplers + G2 HashToPoint), so that G4 passes byte-identity over ≥100 `.rsp` vectors for the 1064-byte `salt‖s2_compact` layout.
 

@@ -3,7 +3,7 @@
   "flow": "greenfield",
   "version": "next-2.0",
   "created": "2026-04-18T18:46:16.472Z",
-  "lastUpdated": "2026-04-20T09:15:00.000Z",
+  "lastUpdated": "2026-04-20T10:05:00.000Z",
   "currentPhase": "implement",
   "currentStep": null,
   "currentCheckpoint": null,
@@ -37,8 +37,30 @@
   "storiesDone": 3,
   "storiesTotal": 6,
   "changeStories": [],
-  "currentStory": null,
-  "executionStrategy": {"waveA": "SINGLE-SUBAGENT", "waveB_T1": "SINGLE-SUBAGENT", "waveB_T2": "SINGLE-SUBAGENT", "waveC_T3": "SINGLE-SUBAGENT", "waveD_T4": "SINGLE-SUBAGENT", "userOverride": "all sequential per user 2026-04-19"},
+  "currentStory": {
+    "storyId": "2-1",
+    "status": "in-progress",
+    "startedAt": "2026-04-20T09:20:00.000Z",
+    "resizedAt": "2026-04-20T09:45:00.000Z",
+    "resizeReason": "A-005: empirical byte-identity vs noble.falcon512.keygen → scope drops from L to S",
+    "resumedAt": "2026-04-20T10:05:00.000Z",
+    "strategyApproved": true,
+    "currentTask": "T1"
+  },
+  "executionStrategy": {
+    "waveA": "SINGLE-SUBAGENT",
+    "waveB_T1": "SINGLE-SUBAGENT",
+    "waveB_T2": "SINGLE-SUBAGENT",
+    "waveC_T3": "SINGLE-SUBAGENT",
+    "waveD_T4": "SINGLE-SUBAGENT",
+    "userOverride": "all sequential per user 2026-04-19",
+    "story_2-1": {
+      "T1": "SINGLE-SUBAGENT",
+      "T2": "SINGLE-SUBAGENT",
+      "T3": "SINGLE-SUBAGENT",
+      "approvedAt": "2026-04-20T09:55:00.000Z"
+    }
+  },
   "tooling": {
     "format": null,
     "lint": null,
@@ -100,7 +122,7 @@
       "gate5Overrides": 0,
       "avgTasksPerStory": 0,
       "sizeDistribution": {
-        "S": 2,
+        "S": 3,
         "M": 1,
         "L": 0
       }
@@ -126,7 +148,7 @@
       "findingsDeferred": 2
     },
     "quality": {
-      "interfaceAudits": 3,
+      "interfaceAudits": 5,
       "interfaceMismatches": 0,
       "amendments": 3,
       "concerns": 2,
@@ -139,7 +161,7 @@
     },
     "drift": {
       "taskDeviations": 0,
-      "storiesResizedDuringImpl": 0
+      "storiesResizedDuringImpl": 1
     },
     "estimation": {
       "sizeAccuracy": {
@@ -158,8 +180,8 @@
       }
     },
     "execution": {
-      "totalSessions": 3,
-      "pauseResumeCount": 1,
+      "totalSessions": 4,
+      "pauseResumeCount": 2,
       "agentTeamsUsed": false,
       "parallelWaves": 0,
       "parallelStories": 0,
@@ -208,7 +230,11 @@
     "failingTests": [],
     "securitySensitive": []
   },
-  "waveStrategy": {"1": "sequential", "2": "sequential"},
+  "waveStrategy": {
+    "1": "sequential",
+    "2": "sequential",
+    "3": "sequential"
+  },
   "devops": {
     "pass1": "pending",
     "pass2": "pending",
