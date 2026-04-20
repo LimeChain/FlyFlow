@@ -3,7 +3,7 @@
   "flow": "greenfield",
   "version": "next-2.0",
   "created": "2026-04-18T18:46:16.472Z",
-  "lastUpdated": "2026-04-20T17:10:00.000Z",
+  "lastUpdated": "2026-04-20T17:35:00.000Z",
   "currentPhase": "implement",
   "currentStep": null,
   "currentCheckpoint": null,
@@ -32,6 +32,12 @@
       {
         "id": "T3",
         "name": "test/fixtures/falcon-eth.ts verifier + account factory",
+        "status": "done",
+        "committed": true
+      },
+      {
+        "id": "T4",
+        "name": "G6 happy-path validateUserOp + gas-cap + AC-FLOW-1 (100 KAT + 5 fresh-keypair)",
         "status": "done",
         "committed": true
       }
@@ -256,14 +262,14 @@
       }
     },
     "tasks": {
-      "totalCompleted": 19,
+      "totalCompleted": 20,
       "totalCompletedNoCommit": 0,
       "totalSkipped": 0,
       "totalRevisions": 1,
-      "totalVerificationCycles": 20,
-      "firstPassSuccess": 17,
-      "tddCount": 5,
-      "tddTotal": 12,
+      "totalVerificationCycles": 21,
+      "firstPassSuccess": 18,
+      "tddCount": 6,
+      "tddTotal": 13,
       "avgVerificationCycles": 0
     },
     "codeReview": {
@@ -340,11 +346,11 @@
       }
     },
     "git": {
-      "totalCommits": 14,
-      "totalFilesChanged": 69,
-      "totalInsertions": 10792,
+      "totalCommits": 15,
+      "totalFilesChanged": 72,
+      "totalInsertions": 11125,
       "totalDeletions": 483,
-      "testsAdded": 222
+      "testsAdded": 224
     }
   },
   "baselineTests": {
