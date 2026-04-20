@@ -27,13 +27,15 @@ epics:
     stories:
       - id: "2-1"
         slug: core-and-keygen-port
-        title: "Falcon-ETH keygen wrapper (G3) — noble.falcon512.keygen + AES-CTR-DRBG replay"
+        title: "Falcon-ETH keygen wrapper (G3) — noble.falcon512.keygen + rngAesCtrDrbg256"
         size: S
-        status: in-progress
+        status: done
         wave: 3
         dependencies: ["1-2"]
         amendments: ["A-005"]
-        resizedDuringImpl: "L→S per A-005"
+        resizedDuringImpl: "L→S per A-005 (v2: library-first, no fixture changes)"
+        gate5: pass
+        completedAt: "2026-04-20T12:30:00Z"
       - id: "2-2"
         slug: hashtopoint-port
         title: "HashToPoint standalone port → G2 PASS"
