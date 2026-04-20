@@ -61,8 +61,6 @@ import { describe, it } from "node:test";
 
 import hre from "hardhat";
 import {
-  BaseError,
-  ContractFunctionRevertedError,
   type Hex,
   bytesToHex,
   encodeFunctionData,
@@ -79,6 +77,7 @@ import type {
   UnsignedUserOp,
 } from "../signers/index.js";
 import { keygen, signUserOp } from "../signers/ml-dsa-eth.js";
+import { assertSignatureMalformedForAccount } from "../utils/signature-malformed-walker.js";
 
 const SIG_VALIDATION_FAILED = 1n;
 const ZERO_BYTES32 = `0x${"0".repeat(64)}` as Hex;
@@ -246,7 +245,6 @@ describe("Story 5 Task 5 — MlDsaEthAccount failure classes", () => {
     { timeout: 120_000 },
     async () => {
       const { entryPoint, account, alice, chainId } = await setup();
-      const accountAddress = account.address.toLowerCase();
 
       const userOp = buildUnsignedUserOp(account.address);
       const signed = await signUserOp(
@@ -268,6 +266,10 @@ describe("Story 5 Task 5 — MlDsaEthAccount failure classes", () => {
         signature: bytesToHex(new Uint8Array(100)),
       };
 
+      // Dual-path walker bound to `account.address.toLowerCase()` —
+      // disambiguates against the other 3 contracts that declare the same
+      // `SignatureMalformed()` custom error (identical 4-byte selector
+      // `0x2c3c2fe1`). See `test/utils/signature-malformed-walker.ts`.
       await assert.rejects(
         () =>
           simulateValidateUserOp(
@@ -276,38 +278,7 @@ describe("Story 5 Task 5 — MlDsaEthAccount failure classes", () => {
             malformed,
             userOpHash,
           ),
-        (err: unknown) => {
-          if (!(err instanceof BaseError)) throw err;
-          // Three account contracts (MlDsaAccount, FalconAccount,
-          // MlDsaEthAccount) declare the same SignatureMalformed()
-          // custom error with identical 4-byte selector 0x2c3c2fe1.
-          // Both walker paths bind the match to the account-under-test's
-          // address so a test-setup mistake routing to the wrong account
-          // cannot spuriously satisfy this predicate.
-          const message = err.message.toLowerCase();
-          const boundToAccount = message.includes(accountAddress);
-          // Canonical viem path: ContractFunctionRevertedError with a
-          // decoded `data.errorName`. Populated when viem's ABI-aware
-          // decoder runs — but errorName is ABI-name-scoped, not
-          // address-scoped, so AND with the address check.
-          const revert = err.walk(
-            (e) => e instanceof ContractFunctionRevertedError,
-          ) as ContractFunctionRevertedError | null;
-          if (
-            revert?.data?.errorName === "SignatureMalformed" &&
-            boundToAccount
-          ) {
-            return true;
-          }
-          // HH3 EDR path: revert surfaces as a `SolidityError` at the
-          // chain tail and viem's decoder doesn't populate `errorName`,
-          // but the EDR message text deterministically contains
-          // "SignatureMalformed()".
-          return (
-            /custom error 'signaturemalformed\(\)'/.test(message) &&
-            boundToAccount
-          );
-        },
+        assertSignatureMalformedForAccount(account.address),
       );
     },
   );

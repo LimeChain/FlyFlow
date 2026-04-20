@@ -3,7 +3,7 @@
   "flow": "greenfield",
   "version": "next-2.0",
   "created": "2026-04-18T18:46:16.472Z",
-  "lastUpdated": "2026-04-20T17:35:00.000Z",
+  "lastUpdated": "2026-04-20T17:44:46.354Z",
   "currentPhase": "implement",
   "currentStep": null,
   "currentCheckpoint": null,
@@ -14,8 +14,12 @@
     "startedAt": "2026-04-20T16:02:00.000Z",
     "wave": 5,
     "size": "L",
-    "dependencies": ["2-3"],
-    "amendments": ["A-007"],
+    "dependencies": [
+      "2-3"
+    ],
+    "amendments": [
+      "A-007"
+    ],
     "tasks": [
       {
         "id": "T1",
@@ -38,6 +42,12 @@
       {
         "id": "T4",
         "name": "G6 happy-path validateUserOp + gas-cap + AC-FLOW-1 (100 KAT + 5 fresh-keypair)",
+        "status": "done",
+        "committed": true
+      },
+      {
+        "id": "T5",
+        "name": "G6 failure paths + shared SignatureMalformed walker extraction (AC-4/AC-5a/AC-5b/AC-6)",
         "status": "done",
         "committed": true
       }
@@ -262,14 +272,14 @@
       }
     },
     "tasks": {
-      "totalCompleted": 20,
+      "totalCompleted": 21,
       "totalCompletedNoCommit": 0,
       "totalSkipped": 0,
       "totalRevisions": 1,
-      "totalVerificationCycles": 21,
-      "firstPassSuccess": 18,
-      "tddCount": 6,
-      "tddTotal": 13,
+      "totalVerificationCycles": 22,
+      "firstPassSuccess": 19,
+      "tddCount": 7,
+      "tddTotal": 14,
       "avgVerificationCycles": 0
     },
     "codeReview": {
@@ -346,11 +356,11 @@
       }
     },
     "git": {
-      "totalCommits": 15,
-      "totalFilesChanged": 72,
-      "totalInsertions": 11125,
-      "totalDeletions": 483,
-      "testsAdded": 224
+      "totalCommits": 16,
+      "totalFilesChanged": 77,
+      "totalInsertions": 11574,
+      "totalDeletions": 518,
+      "testsAdded": 228
     }
   },
   "baselineTests": {
@@ -377,5 +387,12 @@
   "compacted": {
     "at": "2026-04-20T15:41:53.709Z",
     "trigger": "unknown"
+  },
+  "recovery": {
+    "interrupted": true,
+    "interruptedAt": "2026-04-20T17:44:46.354Z",
+    "errorType": "unknown",
+    "errorMessage": "",
+    "uncommittedChanges": true
   }
 }
