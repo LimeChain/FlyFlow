@@ -158,7 +158,7 @@ export interface MlDsaEthKatVector {
   signature: string;
 }
 
-/** One Falcon-ETH KAT vector (falcon-eth Story 1-1 AC-1; Story 2-1 A-005 extension adds `innerSeed` + `signingDrbg`). */
+/** One Falcon-ETH KAT vector (falcon-eth Story 1-1 AC-1). */
 export interface FalconKatVector {
   readonly id: string;
   /** 48 B — AES256_CTR_DRBG seed from ETHFALCON `.rsp`; audit-replay only. */
@@ -173,10 +173,6 @@ export interface FalconKatVector {
   readonly message: `0x${string}`;
   /** 1064 B = `salt(40) ‖ s2_compact(1024)` (G4 expected — falcon-eth signature is NOT NIST-shaped). */
   readonly signature: `0x${string}`;
-  /** 48 B — post-AES-CTR-DRBG inner seed; drives SHAKE256 for NTRU keygen. Story 2-1 `keygenInternal(innerSeed)` consumes (A-005). */
-  readonly innerSeed: `0x${string}`;
-  /** Variable-length hex — concat of all post-keygen DRBG draws consumed by `sk.sign(msg, randombytes=drbg.random_bytes, xof=KeccakPRNG)`. Story 2-3 consumes via `BytesReader` (A-005). */
-  readonly signingDrbg: `0x${string}`;
 }
 
 /**

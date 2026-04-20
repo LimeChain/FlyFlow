@@ -234,24 +234,22 @@ The plan/architecture text is **superseded** by this amendment for all Gate-5 ve
 
 ---
 
-## A-005: Fixture-side Python AES-CTR-DRBG IS the architecture decision — Story 2-1 resizes L→S (noble wrapper) and forward-binds Story 2-3 to consume precomputed signingDrbg
+## A-005: Noble wraps Falcon keygen byte-identically; `@noble/ciphers#rngAesCtrDrbg256` replays the .rsp DRBG at test time — Story 2-1 resizes L→S (no fixture schema changes, no new crypto code)
 
-- **Stories:** 2-1 (`core-and-keygen-port`) — lands the fixture schema extension + keygen wrapper. 2-3 (`signer port + G4`) — forward-bound (consumes the new fixture field; no TS-side DRBG).
-- **Task:** Story 2-1 T1 lands the full amendment + doc sweep + fixture extension. Story 2-1 T2/T3 consume `innerSeed`. Story 2-3 will consume `signingDrbg`.
-- **Date:** 2026-04-20
+- **Stories:** 2-1 (`core-and-keygen-port`) — lands the doc sweep + keygen wrapper (no fixture or Python-recorder changes). 2-3 (`signer port + G4`) — forward-bound (consumes the same `drbgSeed` field already in the fixture; derives signing randomness TS-side via `rngAesCtrDrbg256`).
+- **Task:** Story 2-1 T1 lands the full amendment + doc sweep + story rewrite. Story 2-1 T2 adds the two wrapper files. Story 2-1 T3 adds the G3 KAT test (derives `innerSeed` via `rngAesCtrDrbg256` at test time).
+- **Date:** 2026-04-20 (originally landed with fixture schema extension; revised same day to use `rngAesCtrDrbg256` after noble-ciphers audit).
 - **Classification:** Rule 3 (Significant — interface correction + forward contract). Two intertwined issues resolved together:
   1. **Scope over-estimate (size):** Story 2-1 story-creator-agent drafted a ~500-LOC NTRU source-transplant from `@noble/post-quantum/src/falcon.ts` + XOF-factory abstraction + `falcon-eth.core.ts` module split. Empirical byte-identity shows noble's `falcon512.keygen(inner_seed)` is already bit-identical to `ETHFALCON.ntru_gen + encoders`. Port is unnecessary.
-  2. **Drift from architecture (DRBG placement):** Both Story 2-1's original draft AND Story 2-3's plan.md text imply AES-256-CTR-DRBG gets ported to TypeScript (to "replay" the .rsp drbgSeed at runtime). This contradicts `docs/architecture.md:33` and `docs/architecture.md:90`, which explicitly place DRBG derivation at the Python fixture-gen layer (`scripts/generate-kat-fixtures.ts` — already runs `AES256_CTR_DRBG(seed)` via `python3 -c` subprocess for falcon-eth's existing fields). The established pattern (carried from mldsa-eth per `docs/research.md:109`) is: Python computes, TS consumes. Both stories' drift came from anchoring on plan.md phrasing without cross-checking architecture + existing fixture-gen code.
+  2. **DRBG trust anchor placement:** Both Story 2-1's original draft AND Story 2-3's plan.md text imply writing a new AES-256-CTR-DRBG implementation in TypeScript. That's the ~80-LOC new-crypto-code concern. **`@noble/ciphers/aes.js` ships `rngAesCtrDrbg256` as a first-class public export** — byte-identical to ETHFALCON's Python `AES256_CTR_DRBG` (verified empirically; see Evidence §5). Neither fixture-gen recording nor TS-side hand-port is required: TS tests call `rngAesCtrDrbg256(hexToBytes(v.drbgSeed))` directly and derive both `inner_seed` (for keygen) and the 88 B signer randomness (for the signer) from the existing `drbgSeed` fixture field. The architecture.md:33+90 "DRBG runs at fixture-gen" framing is still correct for keygen/sign OUTPUT capture (those run in Python for `publicKey`/`secretKey`/`signature` fields), but the DRBG state itself is reproducible on either side — we pick the simpler one (TS at test time) to avoid new fixture fields.
 - **Affects:**
-  - `docs/architecture.md:33` (fixture-gen description) — inline A-005 callout
-  - `docs/architecture.md:90` (`drbgDerivation` in data model) — inline A-005 callout (N is now known, captured per-vector via recorder; no longer "TBD by Python-ref audit")
-  - `docs/architecture.md:197` (G3 row — "Uses G1-verified XOF") — inline A-005 callout (G3 uses SHAKE256, not Keccak-PRG; G1 is load-bearing for 2-3 signing, not 2-1 keygen)
+  - `docs/architecture.md:33` (fixture-gen description) — inline A-005 callout (Python-side DRBG is load-bearing for capture of keygen+sign OUTPUT fields; TS replays DRBG at test time via `rngAesCtrDrbg256` for INPUT derivation)
+  - `docs/architecture.md:90` (`drbgDerivation` in data model) — inline A-005 callout (`drbgSeed` field alone is sufficient; no fixture schema additions)
+  - `docs/architecture.md:197+198` (G3 + G4 row surfaces) — inline A-005 callouts (KAT surfaces take derived `innerSeed` / `BytesReader` inputs; sourcing documented inline)
   - `docs/plan.md` §"Story 2-1: `core + keygen port` [L]" (size + task decomposition) — inline A-005 callout; superseded by this amendment's "Impact on Story 2-1" block
   - `docs/plan.md` §"Story 2-3: `signer port + G4`" lines 139/144/148/150 (`signWithDrbgRnd` + `drbgSeed` + `INVALID_DRBG_SEED_LENGTH`) — inline A-005 callouts; surface shape superseded by this amendment's "Forward contract for Story 2-3" block
-  - `scripts/generate-kat-fixtures.ts` — Story 2-1 T1 extends Python recorder + TS schema to emit `innerSeed` + `signingDrbg` per vector
-  - `test/fixtures/kat/index.ts` — Story 2-1 T1 extends `FalconKatVector` interface with `innerSeed` + `signingDrbg`
-  - `test/fixtures/kat/falcon-eth/vectors.json` — Story 2-1 T1 regenerates with 100 vectors × new fields
-  - `docs/stories/2-1.md` — rewritten to the S-sized shape landed in this commit chain
+  - `docs/stories/2-1.md` — rewritten to the S-sized shape landed in this commit chain (T1 = doc sweep only; T2 = wrappers; T3 = KAT test with TS-side DRBG derivation)
+  - **Nothing under `scripts/`, `test/fixtures/kat/`, or `test/signers/`** is affected by T1 — no fixture changes, no Python-recorder changes. Story 2-1 T2 + T3 add new files under `test/signers/`.
 
 ### Evidence (unchanged — two independent proof paths)
 
@@ -275,30 +273,47 @@ The plan/architecture text is **superseded** by this amendment for all Gate-5 ve
 
 3. **Noble's NTRU implements the right algorithm.** `node_modules/@noble/post-quantum/src/falcon.ts:13` imports `shake256 from '@noble/hashes/sha3.js'`; line 1244 in `NTRU.constructor` captures `this.shake = shake256.create().update(seed)`; line 2320 in `keygen()` calls `new NTRU(logn, seed).generate()` which consumes the SHAKE256 reader exactly as ETHFALCON's `ntru_gen(n, randombytes=prng.read, logn=9)` does. Encoders `secretKeyCoder.encode([f, g, F])` + `publicKeyCoder.encode(pub)` produce Round-3 canonical format (897/1281 bytes, headers `0x09`/`0x59`). No encoder / sampler / XOF divergence.
 
-4. **Architecture already placed DRBG in Python (not TS).** `docs/architecture.md:33` ("Fixture-gen CLI extension... spawns one `python3 -c ...`") and `docs/architecture.md:90` (`drbgDerivation: AES256_CTR_DRBG(drbgSeed).random_bytes(N)` — a data-model field description for the fixture's `source` block, not a TS-side runtime contract). `scripts/generate-kat-fixtures.ts:870-902` already invokes Python with `AES256_CTR_DRBG(seed)` for falcon-eth's existing fixture fields. **The Python-side DRBG is shipped infrastructure, not new work.** The new work is extending the Python recorder to ALSO capture `inner_seed` (the keygen draw) and `signingDrbg` (all post-keygen draws during `sk.sign`).
+4. **Architecture's Python-side DRBG framing is valid for OUTPUT capture; INPUT derivation can be TS-side.** `docs/architecture.md:33+90` describe where the DRBG lives at fixture-gen time: Python's `AES256_CTR_DRBG(seed).random_bytes(N)` drives the keygen+sign subprocess that produces the output fields (`publicKey`, `secretKey`, `signature`, `reshapedPublicKey`) we already store. That framing is unchanged — those fields still come from Python. What the architecture did NOT prescribe (because `N` was "TBD") is a parallel TS-side DRBG to derive INPUTS (the 48 B `inner_seed` for keygen, the 88 B sig randomness for signing). Both options satisfy the architecture: (a) extend fixture with precomputed `innerSeed`/`signingDrbg` and a Python recorder; (b) derive TS-side via `rngAesCtrDrbg256` at test time. This amendment chooses (b) because the TS library IS bit-identical (Evidence §5) and avoids fixture-schema and Python-recorder complexity.
 
-### Fixture schema extension (Story 2-1 T1 contract)
+5. **`@noble/ciphers#rngAesCtrDrbg256` is byte-identical to ETHFALCON's `AES256_CTR_DRBG` (2026-04-20 empirical).** For vec-0's `drbgSeed = 0x061550…1FFA1`:
+   ```ts
+   import { rngAesCtrDrbg256 } from '@noble/ciphers/aes.js';
+   const drbg = rngAesCtrDrbg256(hexToBytes(vec0.drbgSeed));
+   drbg.randomBytes(48);  // → 0x7c9935a0b07694aa…5e47 (= Python inner_seed, ✓)
+   drbg.randomBytes(40);  // → 0x33b3c07507e42017… (= first 40 B of Python signingDrbg, ✓)
+   drbg.randomBytes(48);  // → … (= next 48 B of Python signingDrbg, ✓)
+   ```
+   All three draws byte-match Python's reference output. The DRBG state evolves identically across libraries (same NIST SP 800-90A algorithm, same AES-256-ECB primitive underneath). Ships as a FIRST-CLASS public export (not an `__tests` escape hatch) so API-stability risk is standard noble-ecosystem-level. See imports table in "Noble alignment discovery" for Rule-3 pin guidance.
 
-`test/fixtures/kat/index.ts` `FalconKatVector` gains two fields; `test/fixtures/kat/falcon-eth/vectors.json` regenerates with them populated for all 100 vectors:
+### DRBG derivation contract (TS-side, binding)
 
-```jsonc
-// FalconKatVector (extended)
-{
-  "id":                "vec-000",
-  "drbgSeed":          "0x…(48B)",            // existing — .rsp seed, audit trail
-  "publicKey":         "0x…(897B)",           // existing — G3 expected
-  "secretKey":         "0x…(1281B)",          // existing — G3 expected
-  "reshapedPublicKey": "0x…",                 // existing — G5 expected
-  "message":           "0x…",                 // existing — G4 input
-  "signature":         "0x…(1064B)",          // existing — G4 expected
+**Story 2-1 + 2-3 derive DRBG outputs TS-side at test time.** No fixture schema changes. Fixture retains existing 7 fields (`id`, `drbgSeed`, `publicKey`, `secretKey`, `reshapedPublicKey`, `message`, `signature`).
 
-  // NEW fields (A-005):
-  "innerSeed":         "0x…(48B)",            // = drbg.random_bytes(48) post-seed; keygen XOF seed.          Consumed by Story 2-1 `keygenInternal(innerSeed)`.
-  "signingDrbg":       "0x…(variable B)"      // = concat of all drbg.random_bytes(N) calls during sk.sign(). Consumed by Story 2-3 via a `BytesReader`.
-}
+**Derivation pattern (identical shape in 2-1 and 2-3):**
+
+```ts
+import { rngAesCtrDrbg256 } from "@noble/ciphers/aes.js";
+import { hexToBytes } from "viem";
+
+// Per-vector at test time:
+const drbg = rngAesCtrDrbg256(hexToBytes(v.drbgSeed));   // 48 B seed from .rsp
+
+// Story 2-1 (keygen G3):
+const innerSeed = drbg.randomBytes(48);                  // first draw — SHAKE256 seed for noble.falcon512.keygen
+const { publicKey, secretKey } = keygenInternal(innerSeed);
+assertBytesEqual(publicKey, hexToBytes(v.publicKey));
+assertBytesEqual(secretKey, hexToBytes(v.secretKey));
+
+// Story 2-3 (signer G4 — forward-bound here):
+drbg.randomBytes(48);                                     // advance past keygen's inner_seed draw
+const reader: BytesReader = { read: (n) => drbg.randomBytes(n) };
+const sig = signWithKatBytes(sk, msg, reader);           // consumes 40 (salt) + 48 (seed) = 88 B from reader
+assertBytesEqual(sig, hexToBytes(v.signature));
 ```
 
-**Capture mechanism (Python, in `scripts/generate-kat-fixtures.ts` inline Python):** wrap `AES256_CTR_DRBG` with a `RecordingDRBG` that passively appends every `random_bytes(n)` return-value to an internal buffer. After keygen, capture `innerSeed = drbg.random_bytes(48)` directly. Reset the recorder. Run `sk.sign(msg, randombytes=rec.random_bytes, xof=KeccakPRNG)` — the recorder naturally captures exactly the bytes the signer consumed (rejection-loop-aware; no guessing). Dump `rec.drawn.hex()` as `signingDrbg`. Deterministic per vector (same `drbgSeed` + `msg` + `sk` → same byte count + bytes). See `docs/stories/2-1.md` §"Tasks → T1" for the concrete Python sketch.
+**Why this is correct:** the DRBG is a deterministic state machine. Seeding with identical 48 B and making identical `randomBytes(n)` calls in the same order produces byte-identical output in Python and in TS (empirical proof §5). `drbgSeed` is sufficient; `innerSeed` + `signingDrbg` are redundant precomputations.
+
+**Why not extend the fixture anyway:** storing 88+48 = 136 extra bytes per vector × 100 vectors × 2 (hex encoding) = ~27 KB of fixture bloat with zero information gain. The TS derivation is ~3 lines per test file; the Python recorder would be ~30 lines of fragile instrumentation. Simpler code + smaller fixture wins.
 
 ### Forward contract for Story 2-3 (binding, pre-lands surface shape + fork inventory)
 
@@ -315,11 +330,13 @@ if randombytes != urandom:
     shake_prng = SHAKE.new(seed); shake_prng.flip()
 # --- DRBG IS DONE. All further randomness comes from shake_prng (→ ChaCha20-per-iteration). ---
 ```
-Total DRBG consumption: **40 + 48 = 88 bytes per vector** (regardless of rejection-loop iteration count — the rejection entropy comes from `shake_prng.read(56)` → `ChaCha20(chacha_seed).randombytes(...)`, not from the DRBG). Empirically confirmed across all 100 vectors by Story 2-1 T1's `RecordingDRBG` diagnostic: `min=max=mean=88 B`. The 88 B is stable; the fixture field `signingDrbg` is ALWAYS exactly 88 hex bytes (176 hex chars, excluding the `0x` prefix — the loader test at `test/fixtures/kat/index.test.ts` validates the 0x-prefix + even-length shape, but Story 2-3 can additionally assert `signingDrbg.length === 178` in its KAT loader).
+Total DRBG consumption per vector: **40 + 48 = 88 bytes** (regardless of rejection-loop iteration count — the rejection entropy comes from `shake_prng.read(56)` → `ChaCha20(chacha_seed).randombytes(...)`, not from the DRBG). Fixed per vector; not variable. Verified empirically in Python + cross-validated against `rngAesCtrDrbg256` TS-side.
 
-**Structure of the 88 B:**
+**Structure of the 88 B (consumed in order by noble's `signRaw` at `falcon.ts:2187` + `:2192`, matching ETHFALCON Python lines 451 + 455):**
 - **bytes [0..40):** `salt` — feeds HashToPoint at Python line 452 (and is also the first 40 bytes of the output signature per `return header + salt + enc_s` at line 477).
 - **bytes [40..88):** `seed` — feeds `SHAKE.new(seed).flip()` at Python line 456-457. The resulting SHAKE256 state drives ChaCha20 seeding **inside** the rejection loop (`chacha_seed = shake_prng.read(56); chacha = ChaCha20(chacha_seed)` at lines 465-466).
+
+**Source for Story 2-3's KAT tests:** derived TS-side from the existing `v.drbgSeed` fixture field via `rngAesCtrDrbg256` (see "DRBG derivation contract" above). No fixture field added; no 88 B blob stored.
 
 #### Noble alignment discovery (falcon.ts source audit, 2026-04-20)
 
@@ -335,7 +352,7 @@ Total DRBG consumption: **40 + 48 = 88 bytes per vector** (regardless of rejecti
    - Lines 1808-1811: reads 56 B from SHAKE256 per refill, splits into 32 B chacha key + 16 B nonce + 8 B counter
    - Line 1842: `chacha20(this.key, u8(n.subarray(1)), EMPTY_CHACHA20_BLOCK, this.curBlock, n[0])` from `@noble/ciphers/chacha.js` — this IS ETHFALCON's `ChaCha20(chacha_seed).randombytes(...)`
 3. **Noble explicitly comments this flow** at lines 104-108: `"1. aes-drbg generates seed · 2. The seed passes CSPRNG into sign, which uses shake256 to produce another seed and nonce · 3. Then a separate rejection sampling chacha20 CSPRNG is created, based on that seed."` — this IS the ETHFALCON flow, NIST-KAT-compatible by construction.
-4. **Noble ships its own `rngAesCtrDrbg256`** (used at `falcon.ts:2296` for `opts.extraEntropy`) — confirms noble is Falcon-NIST-KAT-compatible end-to-end. Story 2-3 does NOT consume this (fixture precomputes DRBG output), but its existence validates our structural decisions.
+4. **Noble exposes `rngAesCtrDrbg256`** from `@noble/ciphers/aes.js` (first-class public export, not via `__tests`). `@noble/post-quantum/falcon.js:7` imports it; `@noble/post-quantum` uses it internally at `falcon.ts:2296` for `opts.extraEntropy`. **Byte-identical to ETHFALCON's Python `AES256_CTR_DRBG`** (vec-0 test 2026-04-20, see Evidence §5). Story 2-1 + 2-3 import it directly and derive DRBG outputs TS-side at test time.
 5. **`@noble/ciphers/chacha.js` is already installed** as a transitive dep (`node_modules/@noble/ciphers/chacha.js` present; `@noble/post-quantum/falcon.ts:8` imports from it). Story 2-3 may import `chacha20` directly if needed, but in practice the FFSampler copy-port encapsulates this.
 
 #### Story 2-3 fork inventory (locked)
@@ -356,20 +373,21 @@ The only algorithmic divergence between noble and ETHFALCON signing is **HashToP
 
 | Symbol | Source | Purpose |
 |---|---|---|
-| `chacha20` | `@noble/ciphers/chacha.js` | For FFSampler fork's copy of line 1842 |
-| `shake256` | `@noble/hashes/sha3.js` | For FFSampler fork's copy of line 1807 |
-| `Float`, `SIGMA_MIN`, `INV_SIGMA`, `COMPLEX_ROOTS`, `BNORM_MAX` | `@noble/post-quantum/falcon.js` `__tests` export (line 2490) | Sampler math constants |
-| `getFloatPoly` (factory) | `@noble/post-quantum/falcon.js` `__tests` | Float polynomial arithmetic |
-| `cleanCPoly` | `@noble/post-quantum/falcon.js` `__tests` | Memory hygiene |
-| `falcon512.__test.privateKeyCoder` | `@noble/post-quantum/falcon.js` `__tests` | For `secretKeyCoder.decode(sk)` in forked `signRaw` |
-| `falcon512.__test.maxS2Len` | `@noble/post-quantum/falcon.js` `__tests` | For signature-length bound in forked `signRaw` |
+| `rngAesCtrDrbg256` | `@noble/ciphers/aes.js` | **KAT DRBG replay** — Stories 2-1 + 2-3 consume to derive `innerSeed` / signer `BytesReader` from the fixture's `drbgSeed` field. First-class public export. |
+| `chacha20` | `@noble/ciphers/chacha.js` | For FFSampler fork's copy of line 1842. First-class export. |
+| `shake256` | `@noble/hashes/sha3.js` | For FFSampler fork's copy of line 1807. First-class export. |
+| `Float`, `SIGMA_MIN`, `INV_SIGMA`, `COMPLEX_ROOTS`, `BNORM_MAX` | `@noble/post-quantum/falcon.js` `__tests` export (line 2490) | Sampler math constants. **Test-only export — Rule-3 API-stability risk (see mitigation below).** |
+| `getFloatPoly` (factory) | `@noble/post-quantum/falcon.js` `__tests` | Float polynomial arithmetic. Test-only. |
+| `cleanCPoly` | `@noble/post-quantum/falcon.js` `__tests` | Memory hygiene. Test-only. |
+| `falcon512.__test.privateKeyCoder` | `@noble/post-quantum/falcon.js` `__tests` | For `secretKeyCoder.decode(sk)` in forked `signRaw`. Test-only. |
+| `falcon512.__test.maxS2Len` | `@noble/post-quantum/falcon.js` `__tests` | For signature-length bound in forked `signRaw`. Test-only. |
 
 **⚠ Rule-3 API-stability dependency:** `__tests` is annotated `// NOTE: for tests only, don't use`. Any noble version bump that removes or restructures `__tests` breaks the fork. **Mitigation:** pin `@noble/post-quantum` to a narrow version range (e.g., `~0.6.x` instead of `^0.6.x`) so minor-bumps require a conscious amendment. Fallback plan: if `__tests` goes away, fork the math helpers too (+~500 LOC — still cheaper than hand-implementing Falcon float/int arithmetic). Treat noble bumps during Stories 2-3 + 2-4 as Rule-3 events.
 
 #### Surface shape
 
-- **KAT surface (binding):** `signWithKatBytes(sk: Uint8Array, msg: Uint8Array, reader: BytesReader): Uint8Array` returning 1064 B `header(1) ‖ salt(40) ‖ s2_compact(1023)`. Reader wraps `vector.signingDrbg` via `bytesReaderFromHex(hex)`; reader.read(40) returns salt, reader.read(48) returns seed. **Reader MUST enforce: exactly 88 B available, reader.read beyond 88 B is a port bug (throw).**
-- **Production surface:** `signUserOp(...)` wraps `globalThis.crypto.getRandomValues` into a `BytesReader` that returns 88 B of CSPRNG-drawn randomness on first (and only) read. Same forked signer path.
+- **KAT surface (binding):** `signWithKatBytes(sk: Uint8Array, msg: Uint8Array, reader: BytesReader): Uint8Array` returning 1064 B `header(1) ‖ salt(40) ‖ s2_compact(1023)`. Reader is sourced TS-side: `const drbg = rngAesCtrDrbg256(hexToBytes(v.drbgSeed)); drbg.randomBytes(48); const reader = { read: (n) => drbg.randomBytes(n) };` — advances the DRBG past keygen's inner_seed draw, then yields the 88 B (40 + 48) signer randomness through sequential `read(40)` + `read(48)` calls driven by noble's forked `signRaw`. **Reader MUST enforce: on `read(n)` beyond the expected 88 B total, throw `SIGNING_BYTES_EXHAUSTED` — indicates TS signer divergence from the canonical flow.**
+- **Production surface:** `signUserOp(...)` wraps `globalThis.crypto.getRandomValues` into a `BytesReader`. Reader allocates 88 B upfront, fills via CSPRNG, yields on sequential reads. Same forked signer path.
 - **`BytesReader` interface** (declared in 2-3's core module):
   ```ts
   export interface BytesReader {
@@ -382,42 +400,51 @@ The only algorithmic divergence between noble and ETHFALCON signing is **HashToP
   - `SIGNING_BYTES_EXHAUSTED` — KAT reader ran past 88 B (port bug: TS signer drew more DRBG randomness than Python).
   - `SIGNING_BYTES_SHORT` — reader returned fewer than `n` bytes on `read(n)` (production CSPRNG wrapper bug).
   - Retained: `INVALID_SECRET_KEY_LENGTH` (same shape as plan), `INVALID_MESSAGE` (same shape).
-- **AC-1 (G4 KAT) reinterpreted:** Given vec N's `(sk, msg, signingDrbg)` from fixture, When `signWithKatBytes(sk, msg, bytesReaderFromHex(signingDrbg))` runs, Then output 1064 B byte-equals `vector.signature` for that vector — over 100 vectors. The 1064 B layout itself is unchanged from the plan.
-- **AC-6 (PRE_G4_DRBG_PROBE composition) retained** — the probe lives at fixture-gen (Python-side), so: if probe passed for vec 0, and T1's `signingDrbg` capture is deterministic (verified via RecordingDRBG passive wrap), then 100 vectors' `signingDrbg` reflects the byte-exact Python flow. If >1 G4 KAT vector fails in 2-3, it's a TS signer port bug (likely a FFSampler copy error or an off-by-one in HashToPoint `hashToPointEVM`), not a fixture-gen bug.
+- **AC-1 (G4 KAT) reinterpreted:** Given vec N's `(sk, msg, drbgSeed)` from fixture, When `signWithKatBytes(sk, msg, drbgReader(v.drbgSeed))` runs (where `drbgReader` is `const d = rngAesCtrDrbg256(hexToBytes(seed)); d.randomBytes(48); return { read: (n) => d.randomBytes(n) }`), Then output 1064 B byte-equals `vector.signature` for that vector — over 100 vectors. The 1064 B layout itself is unchanged from the plan.
+- **AC-6 (PRE_G4_DRBG_PROBE composition) retained** — the probe lives at fixture-gen (Python-side) and validated for vec 0 at Story 1-1 T0. If probe passed, 100 vectors' `publicKey`/`secretKey`/`signature` outputs were Python-reproducible under the shared `drbgSeed`. If >1 G4 KAT vector fails in 2-3, it's a TS signer port bug (likely a FFSampler copy error or an off-by-one in HashToPoint `hashToPointEVM`), not a fixture-gen bug. The DRBG-state-reproducibility aspect of the probe is ALSO validated TS-side (see Evidence §5 — `rngAesCtrDrbg256` byte-match vs Python reference).
 
 #### 2-3 story-creator mandate
 
 When the story-creator for 2-3 runs (wave 4, after 2-1 closes), it MUST:
-1. Read this A-005 section in full (including "Noble alignment discovery" + "Story 2-3 fork inventory" + "Surface shape").
-2. Read the updated `FalconKatVector` interface in `test/fixtures/kat/index.ts` (landed by Story 2-1 T1).
-3. Read `docs/stories/2-1.md` §"Out of Scope" which references `signingDrbg` as a forward crumb.
-4. Read `node_modules/@noble/post-quantum/src/falcon.ts` lines 1752-1850 (FFSampler + HashToPoint) and 2159-2250 (signRaw) to confirm the fork inventory is accurate at the time of 2-3 creation (noble version may have bumped — if the line numbers are off, the `__tests` export at line 2490-2503 is the anchor). If `__tests` is gone or the math helpers no longer export, this is a Rule-3 amendment trigger — HALT and raise with user before continuing 2-3.
+1. Read this A-005 section in full (including "DRBG derivation contract" + "Noble alignment discovery" + "Story 2-3 fork inventory" + "Surface shape").
+2. Read the `FalconKatVector` interface in `test/fixtures/kat/index.ts` — note it has ONLY 7 fields; `drbgSeed` is the sole DRBG input.
+3. Read `docs/stories/2-1.md` §"Tasks → T3" to see the `rngAesCtrDrbg256` derivation pattern used at test time; Story 2-3's T1 mirrors it (advance past 48 B, then read 88 B).
+4. Read `node_modules/@noble/post-quantum/src/falcon.ts` lines 1752-1850 (FFSampler + HashToPoint) and 2159-2250 (signRaw) to confirm the fork inventory is accurate at the time of 2-3 creation (noble version may have bumped — if line numbers shift, the `__tests` export at line 2490-2503 is the anchor). If `__tests` is gone or the math helpers no longer export, this is a Rule-3 amendment trigger — HALT and raise with user before continuing 2-3.
 5. Do NOT re-introduce `signWithDrbgRnd(drbgSeed)` from plan.md — that surface is superseded.
-6. Do NOT re-port `AES-256-CTR-DRBG` or `ChaCha20` or `SHAKE256` — all are imported from noble's ecosystem.
+6. Do NOT re-port `AES-256-CTR-DRBG` (use `@noble/ciphers#rngAesCtrDrbg256`), `ChaCha20` (use `@noble/ciphers#chacha20`), or `SHAKE256` (use `@noble/hashes#shake256`) — all are first-class imports.
 7. Do NOT re-port `NTRU-gen`, `ffSampling`, `splitFFT`, or `mergeFFT` — signer doesn't need NTRU-gen (that's keygen's domain, done in noble's `falcon512.keygen`), and `ffSampling` is inside `FFSampler.sample()` which we copy verbatim.
-8. The `BytesReader` pattern + fork-with-HashToPoint-swap is the binding contract.
+8. Do NOT propose fixture schema extensions for `innerSeed` or `signingDrbg` — they are derivable TS-side from the existing `drbgSeed`. A fixture extension was considered and rejected (see "DRBG derivation contract" for rationale).
+9. The `BytesReader`-over-`rngAesCtrDrbg256`-DRBG pattern + fork-with-HashToPoint-swap is the binding contract.
 
 ### Impact on Story 2-1
 
-- **Size:** L → S (3 tasks).
+- **Size:** L → S (3 tasks, ~100 LOC total target).
 - **Tasks (new):**
-  - **T1 — Fixture schema extension + Python recorder + regen + doc sweep + story rewrite** (landed together; all drift guards live in one atomic commit):
-    1. Extend inline Python in `scripts/generate-kat-fixtures.ts` (the falcon-eth batch Python source string, currently at lines ~870-902) with a `RecordingDRBG` wrapper. Emit `innerSeed` (48 B) + `signingDrbg` (variable-length) per record.
-    2. Extend `FalconKatVector` interface in `test/fixtures/kat/index.ts` with `innerSeed: \`0x${string}\`` + `signingDrbg: \`0x${string}\``. Update `FalconKatVectorsFile` schema Source block to reflect that `signingDrbg` is captured per-vector (not a static N).
-    3. Regenerate `test/fixtures/kat/falcon-eth/vectors.json` via `npm run kat:regen -- --scheme falcon-eth` (or equivalent CLI path; check existing `package.json` scripts).
-    4. Add loader unit tests (in `test/fixtures/kat/index.test.ts`) confirming new fields present + length invariants: `innerSeed` = 48 B (98 hex chars including `0x`), `signingDrbg.length > 2` (at least 1 B of signing randomness) and even hex length.
-    5. Sweep `docs/plan.md` lines 139/144/148/150 + line 229 area with inline A-005 callouts (pattern: `<!-- A-005: see docs/amendments.md -->` or equivalent — match A-004 callout style).
-    6. Sweep `docs/architecture.md:33`, `:90`, `:197` with inline A-005 callouts.
-    7. Rewrite `docs/stories/2-1.md` to the S-sized task decomposition defined here.
-    8. Commit message: `feat(fixture-gen): T1 innerSeed + signingDrbg fixture fields + A-005 doc sweep — Story 2-1 Task 1/3 · enables AC-1 + forward-binds Story 2-3`.
+  - **T1 — Amendment + doc sweep + story rewrite** (docs-only; no code or fixture changes):
+    1. Write this A-005 amendment in `docs/amendments.md`.
+    2. Sweep `docs/plan.md` Story 2-1 + Story 2-3 headers with inline A-005 callouts (match A-004 callout style).
+    3. Sweep `docs/architecture.md:33`, `:90`, `:197`, `:198` with inline A-005 callouts.
+    4. Rewrite `docs/stories/2-1.md` to the S-sized task decomposition defined here (T1 = this doc sweep; T2 = wrappers; T3 = KAT test with TS-side DRBG derivation).
+    5. Update `docs/sprint-status.yaml` (size L→S already done pre-commit).
+    6. Update `docs/state.json` (metrics).
+    7. Commit message: `feat(falcon-eth): T1 A-005 amendment + doc sweep — Story 2-1 Task 1/3 · forward-binds Story 2-3 to rngAesCtrDrbg256 pattern`.
+    8. **No `scripts/`, `test/fixtures/`, or `test/signers/` files touched in T1.** Fixture retains its existing 7 fields. Python subprocess unchanged.
   - **T2 — `keygenInternal(innerSeed)` + production `keygen()`:**
-    - `test/signers/falcon-eth.kat-internal.ts` (NEW, ~15 LOC): `keygenInternal(innerSeed: Uint8Array): Keypair` — guards `innerSeed instanceof Uint8Array && innerSeed.length === 48` with `SignerInputError { code: "INVALID_INNER_SEED_LENGTH" }`, then `return falcon512.keygen(innerSeed)`. No DRBG import, no AES primitive, no crypto code at all.
+    - `test/signers/falcon-eth.kat-internal.ts` (NEW, ~15 LOC): `keygenInternal(innerSeed: Uint8Array): Keypair` — guards `innerSeed instanceof Uint8Array && innerSeed.length === 48` with `SignerInputError { code: "INVALID_INNER_SEED_LENGTH" }`, then `return falcon512.keygen(innerSeed)`. No DRBG import — the DRBG derivation happens in T3's test code, not inside `keygenInternal` itself.
     - `test/signers/falcon-eth.ts` (NEW, ~15 LOC): `keygen(): Keypair` — sources `seed = globalThis.crypto.getRandomValues(new Uint8Array(48))`, calls `falcon512.keygen(seed)`, returns. Does NOT import from `falcon-eth.kat-internal.ts`.
     - `test/signers/falcon-eth.test.ts` (NEW, small): AC-2 + AC-3 + AC-5 + AC-6 unit tests.
     - Commit: `feat(falcon-eth): T2 keygenInternal + production keygen — Story 2-1 Task 2/3 · AC-2/AC-3/AC-5/AC-6`.
-  - **T3 — G3 KAT byte-identity test:**
-    - `test/signers/falcon-eth.keygen.kat.test.ts` (NEW, ~50 LOC): iterate `loadKatVectors("falcon-eth")`; for each `v`, call `keygenInternal(hexToBytes(v.innerSeed))` and assert `publicKey === hexToBytes(v.publicKey)` + `secretKey === hexToBytes(v.secretKey)` byte-identical. Module-scope divergence-message helper per `.claude/rules/retrospect/typescript.md` §"[2026-04-20] Duplicated failure-message templates".
-    - Commit: `test(falcon-eth): T3 G3 KAT byte-identity — Story 2-1 Task 3/3 · AC-1`.
+  - **T3 — G3 KAT byte-identity test with TS-side DRBG derivation:**
+    - `test/signers/falcon-eth.keygen.kat.test.ts` (NEW, ~55 LOC): iterate `loadKatVectors("falcon-eth")`; for each `v`:
+      ```ts
+      import { rngAesCtrDrbg256 } from "@noble/ciphers/aes.js";
+      const drbg = rngAesCtrDrbg256(hexToBytes(v.drbgSeed));
+      const innerSeed = drbg.randomBytes(48);
+      const { publicKey, secretKey } = keygenInternal(innerSeed);
+      // assert byte-identity vs hexToBytes(v.publicKey) and hexToBytes(v.secretKey)
+      ```
+      Module-scope divergence-message helper per `.claude/rules/retrospect/typescript.md` §"[2026-04-20] Duplicated failure-message templates".
+    - Commit: `test(falcon-eth): T3 G3 KAT byte-identity via rngAesCtrDrbg256 — Story 2-1 Task 3/3 · AC-1`.
 
 - **Tasks (dropped from original story-creator draft):**
   - ❌ "NTRU fork + `keygenWithXof` in core" — noble is verbatim-correct.
@@ -425,25 +452,32 @@ When the story-creator for 2-3 runs (wave 4, after 2-1 closes), it MUST:
   - ❌ `XofFactory` parameterization — keygen hardcodes SHAKE256 via noble; nothing to inject.
   - ❌ `@delta-from-falcon` JSDoc + `FALCON_DELTA_HEADINGS` grep gate — no delta to document.
   - ❌ `(let|var) _?xof` grep gate — keygen has no xof variable; trivially satisfied.
-  - ❌ **AES-256-CTR-DRBG port to TypeScript** — deviates from architecture lines 33+90; DRBG lives in Python at fixture-gen.
+  - ❌ **AES-256-CTR-DRBG port to TypeScript** — `rngAesCtrDrbg256` from `@noble/ciphers/aes.js` imported directly.
+  - ❌ **Fixture schema extension (`innerSeed`, `signingDrbg` fields) + Python recorder** — rejected per "DRBG derivation contract" section; TS-side derivation is simpler and redundancy-free.
 
 - **ACs retained from plan (reinterpreted):**
-  - **AC-1 (G3 KAT):** byte-identity over ≥100 vectors — unchanged. Input changes from `drbgSeed` (48 B) to `innerSeed` (48 B precomputed); output comparison unchanged.
+  - **AC-1 (G3 KAT):** byte-identity over ≥100 vectors — unchanged. Input to `keygenInternal` is the 48 B `innerSeed` DERIVED at test time via `rngAesCtrDrbg256(hexToBytes(v.drbgSeed)).randomBytes(48)`. Output comparison unchanged.
   - **AC-2 (Production surface hedging):** unchanged — `keygen()` entropy-sourced, two calls produce different keys.
   - **AC-3 (Input validation):** reinterpreted — `keygenInternal` throws `SignerInputError { code: "INVALID_INNER_SEED_LENGTH" }` on non-48-byte input. The error code name changes (`INVALID_DRBG_SEED_LENGTH` → `INVALID_INNER_SEED_LENGTH`) to reflect what the parameter actually is.
   - **AC-4 (Module-header structural check):** dropped — no delta-from header required.
   - **AC-5 (Grep gates):** reduced — only the `KAT_INTERNAL_MODULES` import check (`test/signers/index.ts` + `test/bench/**/*.ts` must not import `falcon-eth.kat-internal`). `(let|var) _?xof` dropped.
   - **AC-6 (Interface):** reduced — `falcon-eth.ts` exports `keygen()`; `falcon-eth.kat-internal.ts` exports `keygenInternal(innerSeed)`. Neither imports the other. No `core` module.
+  - **AC-7 (Fixture schema extension):** DROPPED — rejected in favor of TS-side derivation via `rngAesCtrDrbg256`. Fixture retains existing 7 fields.
 
 ### Retrospect candidate (to be proposed at Gate 5 if findings-deferred captures knowledge gap)
 
 The class-of-bug surfaced here is worth a retrospect rule (target: `.claude/rules/retrospect/universal.md`):
 
-> **[TBD date] Story-creator must cross-check architecture + existing code before proposing new runtime crypto.** When plan.md says "implement foo that replays/derives X", story-creator must (a) check architecture for whether foo's derivation lives elsewhere (e.g., fixture-gen, prior infrastructure), (b) grep the codebase for existing X-derivation code, (c) check the data-model section for whether X is a consumed fixture field rather than a runtime-derived value. Plan text can be ambiguous ("keygenInternal(drbgSeed) that replays AES256_CTR_DRBG" can mean either "replays in TS" or "consumes Python-derived replay output"); architecture + existing code are the ground truth.
+> **[TBD date] Story-creator must check existing dependencies before proposing new runtime crypto.** When plan.md says "implement foo that does X (cryptographic primitive)", story-creator must: (a) grep `node_modules/` for existing library exports that implement X (e.g., `node_modules/@noble/{hashes,ciphers,curves,post-quantum}/*.ts` for hash/cipher/signature primitives); (b) check architecture.md for whether X's computation happens at fixture-gen time (Python) vs runtime (TS) vs both; (c) check the data-model section for whether X's output is stored as a fixture field rather than a derived value. Plan text is often ambiguous ("implement foo that replays Y" can mean port-to-TS, import-from-library, derive-from-fixture-field, or fixture-gen-recording — four distinct designs); architecture + existing library/fixture inventory are the ground truth.
 >
-> **Why:** This rule was derived from Story 2-1's initial L-sized draft (which re-ported AES-CTR-DRBG to TS contrary to architecture lines 33+90) and Story 2-3's plan-level `signWithDrbgRnd(drbgSeed)` surface (which would have propagated the same drift). Caught at implementation time only because the user Socratically pushed back on the T1 proposal; story-creator had anchored on plan.md phrasing without checking architecture + existing fixture-gen code.
+> **Why:** This rule was derived from Story 2-1's journey through three designs in 4 hours:
+> 1. **L-sized "NTRU fork + XOF-factory + falcon-eth.core.ts"** (original story-creator draft) — missed that noble.falcon512.keygen is byte-identical to ETHFALCON's ntru_gen.
+> 2. **S-sized "port AES-CTR-DRBG to TS + fixture schema extension + Python recorder"** (amendment v1) — missed that `@noble/ciphers/aes.js` ships `rngAesCtrDrbg256` as a first-class export, byte-identical to ETHFALCON's Python DRBG. Also added 2 unnecessary fixture fields.
+> 3. **S-sized "import rngAesCtrDrbg256 + wrap falcon512.keygen"** (amendment v2, final) — the library-first approach. ~50 LOC total. No fixture changes. No Python changes. No new crypto code.
 >
-> **How to apply:** At story creation time, for every task that proposes "X cryptographic primitive", (a) read the data-model fixture schema in architecture.md to see if X is stored as a fixture field; (b) grep `scripts/generate-kat-fixtures.ts` (or equivalent fixture-gen script) for X-related invocations; (c) read architecture.md's "boundaries" and "fixture-gen" rows before deciding X lives in TS.
+> Each design iteration shrank scope by 2-5x once the correct library/primitive was discovered. The iteration cost was real (re-reading architecture, reverting committed fixture changes), and each pivot would have been avoidable with an upfront "grep node_modules" pass.
+>
+> **How to apply:** At story creation time, for every task that proposes "X cryptographic primitive", do an **explicit library survey** of `node_modules/@noble/*` (and any other trusted crypto libs in the project) BEFORE writing the task spec. If a byte-identical library function exists, the task is "import + wrap," not "port." If the fixture already has the inputs needed to derive X, NO fixture schema change is needed. Treat "port to TS" as the LAST resort; library-first, fixture-first, port-only-if-neither.
 
 Proposal lands at Gate 5 of Story 2-1 via `[L] Apply fixes + learn` (or equivalent) if the code-review surfaces the knowledge gap.
 
@@ -455,9 +489,9 @@ Proposal lands at Gate 5 of Story 2-1 via `[L] Apply fixes + learn` (or equivale
 
 ### Resolution
 
-- This A-005 amendment lands in `docs/amendments.md` as part of Story 2-1 T1 commit.
-- `docs/architecture.md:33`, `:90`, `:197` + `docs/plan.md` lines 139/144/148/150 + line ~229 get inline A-005 callouts (matching A-004 callout style) in the SAME T1 commit.
-- `docs/stories/2-1.md` gets rewritten to the S-sized shape in the SAME T1 commit.
-- `scripts/generate-kat-fixtures.ts` + `test/fixtures/kat/index.ts` + `test/fixtures/kat/falcon-eth/vectors.json` + `test/fixtures/kat/index.test.ts` get the fixture schema extension + regen + tests in the SAME T1 commit.
-- Upstream retrospect rule **carried from** `.claude/rules/retrospect/universal.md` §"[2026-04-18] Amendment doc sweep — don't leak the old shape": this amendment's doc sweep is exactly that rule's prescribed action. The architecture/plan/story texts that implied TS-side DRBG are stale and are corrected here.
+- This A-005 amendment landed in `docs/amendments.md` in Story 2-1's first T1 commit (e4b2a5a, 2026-04-20). That commit included a fixture schema extension + Python recorder changes; those were REVERTED in the corrective follow-up commit upon discovery of `@noble/ciphers#rngAesCtrDrbg256` (Evidence §5). A-005 now reflects the final "library-first" design: no fixture changes, no Python changes, no new crypto code.
+- `docs/architecture.md:33`, `:90`, `:197`, `:198` + `docs/plan.md` Story 2-1 + Story 2-3 headers carry inline A-005 callouts (matching A-004 callout style).
+- `docs/stories/2-1.md` rewrote to the S-sized shape. T1 = doc sweep only (no code); T2 = wrappers; T3 = KAT test with TS-side `rngAesCtrDrbg256` derivation.
+- Upstream retrospect rule **carried from** `.claude/rules/retrospect/universal.md` §"[2026-04-18] Amendment doc sweep — don't leak the old shape": this amendment's doc sweep is exactly that rule's prescribed action. The architecture/plan/story texts that implied TS-side DRBG re-port are stale and are corrected here.
+- **NEW retrospect candidate** documented above ("library-first vs port-first"): proposed at Gate 5 via `[L] Apply fixes + learn` if code-review surfaces the knowledge gap. Story 2-1's three-design journey (L NTRU fork → S fixture-recorder → S library-wrapper) is strong evidence for the rule.
 - Plan/architecture phrasing is **superseded** by this amendment for all Gate-5 verification, code-review, and downstream-story-creation purposes (Stories 2-1 T2/T3, 2-3, 2-4).

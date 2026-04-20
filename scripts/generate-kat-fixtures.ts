@@ -1258,9 +1258,8 @@ function finalizeFalconRecord(r: Partial<FalconRspRecord>): FalconRspRecord {
 
 /**
  * Python batch for the falcon-eth fixture. Reads one JSON payload from stdin
- * shaped `{vectors: [{count, seed_hex, msg_hex, pk_hex, sm_hex, mlen}, ...]}`
- * and writes 100 NDJSON lines to stdout:
- * `{count, reshapedPublicKey, signature, innerSeed, signingDrbg}` where:
+ * shaped `{vectors: [{count, pk_hex, sm_hex, mlen}, ...]}` and writes 100
+ * NDJSON lines to stdout: `{count, reshapedPublicKey, signature}` where:
  *   - `reshapedPublicKey` = `abi.encode(['uint256[32]'],
  *       [falcon_compact(Poly(PublicKey.from_bytes(pk).pk, q).ntt())])`
  *     — exactly 1024 B (no length prefix; fixed-size array).
@@ -1268,14 +1267,6 @@ function finalizeFalconRecord(r: Partial<FalconRspRecord>): FalconRspRecord {
  *     `s2_compact_packed = b''.join(int.to_bytes(x, 32, 'big') for x in
  *      falcon_compact(decompress(esig[1:], 625, 512) mod q))` — exactly
  *     1064 B. Mirrors `ZKNOX_common.sol::_packSignature` (`salt || s2`).
- *   - `innerSeed` (A-005) = `AES256_CTR_DRBG(seed).random_bytes(48)` — the
- *     keygen XOF seed consumed by `SHAKE.new(inner_seed).flip()` then
- *     `ntru_gen(randombytes=prng.read)`. Exactly 48 B.
- *   - `signingDrbg` (A-005) = concat of all `drbg.random_bytes(n)` calls made
- *     during `sk.sign(msg, randombytes=rec.random_bytes, xof=KeccakPRNG)`,
- *     captured per-vector via a passive `RecordingDRBG` wrapper. Variable
- *     length (≥40 B; typical 2-12 KB). Story 2-3's signer will consume this
- *     via a `BytesReader` closure.
  *
  * NFR-3: Python source is passed as a `-c` string — no `.py` file shipped.
  * NFR-9: no operator-controllable env-var values are interpolated into the
@@ -1286,11 +1277,7 @@ import json
 import sys
 sys.path.insert(0, "ETHFALCON/pythonref")
 
-from drbg.aes256_ctr_drbg import AES256_CTR_DRBG
-from falcon import PublicKey, SecretKey, HEAD_LEN, SALT_LEN, decompress
-from ntrugen import ntru_gen
-from shake import SHAKE
-from keccak_prng import KeccakPRNG
+from falcon import PublicKey, HEAD_LEN, SALT_LEN, decompress
 from common import falcon_compact, q
 from polyntt.poly import Poly
 from eth_abi import encode as abi_encode
@@ -1299,28 +1286,9 @@ from eth_abi import encode as abi_encode
 SIG_BYTELEN_512 = 666
 N = 512
 
-
-class RecordingDRBG:
-    """Passive wrapper — forwards random_bytes(n) to the inner DRBG and
-    appends every returned chunk to an internal buffer. Does NOT try to
-    predict byte counts; simply captures exactly what was drawn. See
-    docs/amendments.md §A-005."""
-
-    def __init__(self, inner):
-        self.inner = inner
-        self.drawn = bytearray()
-
-    def random_bytes(self, n):
-        b = self.inner.random_bytes(n)
-        self.drawn += b
-        return b
-
-
 payload = json.loads(sys.stdin.read())
 for rec in payload["vectors"]:
     count = rec["count"]
-    seed = bytes.fromhex(rec["seed_hex"])
-    msg = bytes.fromhex(rec["msg_hex"])
     pk_bytes = bytes.fromhex(rec["pk_hex"])
     sm_bytes = bytes.fromhex(rec["sm_hex"])
     mlen = rec["mlen"]
@@ -1368,40 +1336,12 @@ for rec in payload["vectors"]:
             "sig_bytes length %d != 1064 for count=%d" % (len(sig_bytes), count)
         )
 
-    # --- innerSeed + signingDrbg (A-005) ---
-    # Exact replay of test_KAT_ETH (ETHFALCON/pythonref/test_falcon_KAT.py:
-    # 122-134): AES256_CTR_DRBG(seed) → inner_seed = drbg.random_bytes(48) →
-    # SHAKE.new(inner_seed).flip() → ntru_gen → SecretKey → sk.sign(...,
-    # xof=KeccakPRNG). Recorder wraps the SAME drbg (state continues from
-    # post-inner-seed).
-    drbg = AES256_CTR_DRBG(seed)
-    inner_seed = drbg.random_bytes(48)
-    if len(inner_seed) != 48:
-        raise RuntimeError(
-            "inner_seed length %d != 48 for count=%d" % (len(inner_seed), count)
-        )
-    prng = SHAKE.new(inner_seed)
-    prng.flip()
-    f, g, F, G = ntru_gen(N, randombytes=prng.read, logn=9)
-    sk = SecretKey(N, [f, g, F, G])
-
-    rec_drbg = RecordingDRBG(drbg)
-    _sig_reproduced = sk.sign(msg, randombytes=rec_drbg.random_bytes, xof=KeccakPRNG)
-    signing_drbg = bytes(rec_drbg.drawn)
-    if len(signing_drbg) == 0:
-        raise RuntimeError(
-            "signing_drbg length 0 for count=%d (Falcon-512 sign must draw ≥40B salt)"
-            % count
-        )
-
     sys.stdout.write(
         json.dumps(
             {
                 "count": count,
                 "reshapedPublicKey": reshaped_pk.hex(),
                 "signature": sig_bytes.hex(),
-                "innerSeed": inner_seed.hex(),
-                "signingDrbg": signing_drbg.hex(),
             }
         )
         + "\\n"
@@ -1413,17 +1353,6 @@ interface PythonFalconResult {
   count: number;
   reshapedPublicKey: string;
   signature: string;
-  /**
-   * 48 B hex — `AES256_CTR_DRBG(seed).random_bytes(48)`. The keygen XOF seed
-   * (A-005). Consumed by Story 2-1 `keygenInternal(innerSeed)`.
-   */
-  innerSeed: string;
-  /**
-   * Variable-length hex — concat of all `random_bytes(n)` calls captured via
-   * passive `RecordingDRBG` during `sk.sign(msg, randombytes=rec.random_bytes,
-   * xof=KeccakPRNG)` (A-005). Consumed by Story 2-3 via a `BytesReader`.
-   */
-  signingDrbg: string;
 }
 
 /**
@@ -1441,17 +1370,6 @@ interface FalconKatVectorLocal {
   reshapedPublicKey: `0x${string}`;
   message: `0x${string}`;
   signature: `0x${string}`;
-  /**
-   * 48 B — `AES256_CTR_DRBG(drbgSeed).random_bytes(48)`; the keygen XOF seed
-   * (A-005). Consumed by Story 2-1 `keygenInternal(innerSeed)`.
-   */
-  innerSeed: `0x${string}`;
-  /**
-   * Variable-length — concat of all post-keygen `drbg.random_bytes(n)` calls
-   * captured via `RecordingDRBG` during `sk.sign(msg, randombytes=...,
-   * xof=KeccakPRNG)` (A-005). Consumed by Story 2-3 via a `BytesReader`.
-   */
-  signingDrbg: `0x${string}`;
 }
 
 /**
@@ -1526,8 +1444,6 @@ function serializeFalconKatFixture(f: FalconKatVectorsFileLocal): string {
       reshapedPublicKey: v.reshapedPublicKey,
       message: v.message,
       signature: v.signature,
-      innerSeed: v.innerSeed,
-      signingDrbg: v.signingDrbg,
     })),
   };
   return JSON.stringify(obj, null, 2) + "\n";
@@ -1544,8 +1460,6 @@ function runFalconPythonBatch(
   const batchPayload = {
     vectors: records.map((r) => ({
       count: r.count,
-      seed_hex: r.seed,
-      msg_hex: r.msg,
       pk_hex: r.pk,
       sm_hex: r.sm,
       mlen: r.mlen,
@@ -1641,17 +1555,6 @@ function writeFalconEthFixture(): void {
         `.rsp pk hex length ${r.pk.length} != 1794 (897 B) for count=${r.count}`,
       );
     }
-    // A-005 invariants — caught at fixture-gen time, not at TS test time.
-    if (py.innerSeed.length !== 96) {
-      throw new Error(
-        `innerSeed hex length ${py.innerSeed.length} != 96 (48 B) for count=${r.count}`,
-      );
-    }
-    if (py.signingDrbg.length === 0 || py.signingDrbg.length % 2 !== 0) {
-      throw new Error(
-        `signingDrbg hex length ${py.signingDrbg.length} must be non-zero and even for count=${r.count}`,
-      );
-    }
     const idNum = String(r.count).padStart(3, "0");
     return {
       id: `vec-${idNum}`,
@@ -1661,24 +1564,8 @@ function writeFalconEthFixture(): void {
       reshapedPublicKey: `0x${py.reshapedPublicKey}`,
       message: `0x${r.msg}`,
       signature: `0x${py.signature}`,
-      innerSeed: `0x${py.innerSeed}`,
-      signingDrbg: `0x${py.signingDrbg}`,
     };
   });
-
-  // A-005 diagnostic — min/max/mean signingDrbg length across all vectors.
-  // Sharp deviation (e.g., a single vector 10-100× the mean) indicates a
-  // rejection-loop anomaly worth investigating before landing the fixture.
-  const signingDrbgLens = vectors.map(
-    (v) => (v.signingDrbg.length - 2) / 2, // strip 0x, convert hex→bytes
-  );
-  const minLen = Math.min(...signingDrbgLens);
-  const maxLen = Math.max(...signingDrbgLens);
-  const meanLen =
-    signingDrbgLens.reduce((a, b) => a + b, 0) / signingDrbgLens.length;
-  process.stdout.write(
-    `falcon-eth signingDrbg diagnostics: min=${minLen}B max=${maxLen}B mean=${meanLen.toFixed(1)}B over ${vectors.length} vectors\n`,
-  );
 
   const fixture: FalconKatVectorsFileLocal = {
     scheme: "falcon-eth",
@@ -1689,7 +1576,7 @@ function writeFalconEthFixture(): void {
     source: {
       rspFile: "ETHFALCON/test/ethfalcon512-KAT.rsp",
       drbgDerivation:
-        "AES256_CTR_DRBG(drbgSeed) drives keygen (innerSeed = first random_bytes(48)) + signing (signingDrbg = concat of all post-keygen random_bytes(N) calls, captured per-vector via RecordingDRBG). Python-side only; TS never replays DRBG. See docs/amendments.md §A-005.",
+        "AES256_CTR_DRBG(drbgSeed).random_bytes(N) — N determined by PRE_G4_DRBG_PROBE",
       ctx: "0x",
     },
     vectors,
