@@ -29,12 +29,17 @@ export class NotImplementedError extends Error {
  * empty ctx and a 32-byte hedged rnd; `signWithRnd` defaults ctx to empty
  * and forwards the caller's rnd) but the core is an exported symbol consumed
  * directly by the G2 KAT test, so the taxonomy covers misuse paths there.
+ *
+ * `INVALID_INNER_SEED_LENGTH` is raised by the Falcon-ETH KAT surface
+ * (`keygenInternal` in `falcon-eth.kat-internal.ts`) when the supplied
+ * `innerSeed` is not a 48-byte `Uint8Array` (Story 2-1 AC-3).
  */
 export type SignerInputErrorCode =
   | "INVALID_SECRET_KEY_LENGTH"
   | "INVALID_MESSAGE"
   | "INVALID_CTX_LENGTH"
-  | "INVALID_RND_LENGTH";
+  | "INVALID_RND_LENGTH"
+  | "INVALID_INNER_SEED_LENGTH";
 
 /**
  * Caller-provided input failed a pre-signing validation check (Story 4 —
