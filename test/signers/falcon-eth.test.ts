@@ -23,11 +23,13 @@
  */
 
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { bytesEqual } from "../utils/assert-bytes.js";
+import { listTsFiles } from "../utils/fs-walk.js";
 import { SignerInputError } from "./errors.js";
 import { keygen } from "./falcon-eth.js";
 import { keygenInternal } from "./falcon-eth.kat-internal.js";
@@ -50,31 +52,6 @@ const KAT_INTERNAL_IMPORT_RE =
  *  `falcon-eth.kat-internal.ts` (AC-6 reverse direction). Matches relative
  *  paths `./falcon-eth` or `./falcon-eth.js` in single or double quotes. */
 const FALCON_ETH_IMPORT_RE = /from\s+["']\.\.?\/falcon-eth(\.js)?["']/;
-
-function listTsFiles(dir: string): string[] {
-  let stat;
-  try {
-    stat = statSync(dir);
-  } catch {
-    return []; // directory missing (fresh clone, no bench tree) — vacuous pass.
-  }
-  if (!stat.isDirectory()) return [];
-  const out: string[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...listTsFiles(full));
-    else if (entry.isFile() && entry.name.endsWith(".ts")) out.push(full);
-  }
-  return out;
-}
-
-function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
-}
 
 describe("falcon-eth keygen surfaces (AC-2 / AC-3 / AC-5 / AC-6)", () => {
   // === AC-2: production hedging ==========================================

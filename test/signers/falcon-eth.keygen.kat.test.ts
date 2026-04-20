@@ -28,6 +28,7 @@ import { rngAesCtrDrbg256 } from "@noble/ciphers/aes.js";
 import { bytesToHex, hexToBytes } from "viem";
 
 import { loadKatVectors } from "../fixtures/kat/index.js";
+import { bytesEqual } from "../utils/assert-bytes.js";
 import { keygenInternal } from "./falcon-eth.kat-internal.js";
 
 /**
@@ -79,25 +80,17 @@ function formatG3DivergenceMessage(
 
   return (
     `${vectorId}: ${field} first-differing byte at offset ${offset} ` +
-      `(actual.length=${actual.length}, expected.length=${expected.length})\n` +
+    `(actual.length=${actual.length}, expected.length=${expected.length})\n` +
     `  actual   [${start}..${endA}): ${ctxActual}\n` +
     `  expected [${start}..${endE}): ${ctxExpected}\n` +
     `\n` +
     `  G3 divergence — likely root causes (prior-probability order):\n` +
     `    1. noble version drift — check @noble/post-quantum / @noble/ciphers pins in package.json\n` +
     `    2. rngAesCtrDrbg256 semantics diverged from Python AES256_CTR_DRBG — ` +
-      `verify A-005 Evidence §5 vec-0 anchor: innerSeed starts 0x7c9935a0b07694aa…\n` +
+    `verify A-005 Evidence §5 vec-0 anchor: innerSeed starts 0x7c9935a0b07694aa…\n` +
     `    3. fixture regenerated under a different submodule SHA — ` +
-      `check FalconKatVectorsFile.submoduleSha vs .gitmodules (pinned 03ed0d60c67087527de7c4a3c1c469b89611bd68)\n`
+    `check FalconKatVectorsFile.submoduleSha vs .gitmodules (pinned 03ed0d60c67087527de7c4a3c1c469b89611bd68)\n`
   );
-}
-
-function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
 }
 
 describe("Falcon-ETH keygen G3 KAT byte-identity (AC-1)", () => {

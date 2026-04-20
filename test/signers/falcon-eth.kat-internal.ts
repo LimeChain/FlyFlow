@@ -26,7 +26,11 @@ import type { Keypair } from "./index.js";
  * byte-identical to ETHFALCON's `_keygen_internal(innerSeed)` reference.
  *
  * @param innerSeed - 48-byte domain-separation seed (e.g. a `.rsp` vector's
- *                    recovered inner seed via `AES256_CTR_DRBG.randomBytes(48)`).
+ *                    recovered inner seed via
+ *                    `@noble/ciphers/aes.js#rngAesCtrDrbg256(drbgSeed).randomBytes(48)`
+ *                    — byte-identical to ETHFALCON's Python
+ *                    `AES256_CTR_DRBG(seed).random_bytes(48)` per
+ *                    `docs/amendments.md` §A-005 Evidence §5).
  * @returns `{ publicKey, secretKey }` — 897 B pk + 1281 B sk.
  * @throws {@link SignerInputError} with `code: "INVALID_INNER_SEED_LENGTH"`
  *         when `innerSeed` is not a 48-byte `Uint8Array`.

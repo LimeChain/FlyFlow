@@ -42,11 +42,12 @@ export type SignerInputErrorCode =
   | "INVALID_INNER_SEED_LENGTH";
 
 /**
- * Caller-provided input failed a pre-signing validation check (Story 4 —
- * AC-4-3, AC-4-4). Raised by
- * {@link import("./ml-dsa-eth.kat-internal").signWithRnd} before any
- * cryptographic work — malformed inputs never reach the core `signWithXof`
- * fork — and by the shared core for ctx/rnd invariants.
+ * Caller-provided input failed a pre-cryptographic validation check. Raised
+ * by signer-surface functions — `signWithRnd`, `signUserOp`, `keygenInternal`
+ * — before any cryptographic work, when caller-provided inputs fail length
+ * or type checks. See {@link SignerInputErrorCode} for the exhaustive
+ * error-code union covering message/secret-key length, ctx/rnd invariants
+ * (shared core), and Falcon-ETH inner-seed length (Story 2-1 AC-3).
  */
 export class SignerInputError extends Error {
   readonly code: SignerInputErrorCode;

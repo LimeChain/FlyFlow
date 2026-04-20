@@ -20,11 +20,12 @@
  */
 
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { listTsFiles } from "../utils/fs-walk.js";
 import {
   BETA,
   D,
@@ -50,23 +51,6 @@ const ML_DSA_ETH_KAT_FILE = path.join(SIGNERS_DIR, "ml-dsa-eth.kat-internal.ts")
  *  and single-quoted variants, with or without the `.js` suffix. */
 const KAT_INTERNAL_IMPORT_RE =
   /from\s+["'][^"']*ml-dsa-eth\.kat-internal[^"']*["']/;
-
-function listTsFiles(dir: string): string[] {
-  let stat;
-  try {
-    stat = statSync(dir);
-  } catch {
-    return []; // directory missing (e.g. fresh clone with no bench tree) — vacuous pass.
-  }
-  if (!stat.isDirectory()) return [];
-  const out: string[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...listTsFiles(full));
-    else if (entry.isFile() && entry.name.endsWith(".ts")) out.push(full);
-  }
-  return out;
-}
 
 describe("ml-dsa-eth boundary + params + delta-header (AC-3-6/-3-7/-3-8)", () => {
   it("AC-3-7: test/signers/index.ts has no import from ml-dsa-eth.kat-internal", () => {

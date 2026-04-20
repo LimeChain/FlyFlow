@@ -6,11 +6,32 @@
  * discriminant surfaced by {@link XofReader.id}), the message appends a
  * `(factory=<xofId>)` tag so interleaved-XOF regressions have a
  * grep-friendly anchor in test output.
+ *
+ * Also exports `bytesEqual` — a boolean-returning counterpart for callers
+ * that need to branch on equality rather than throw (e.g., the Falcon-ETH
+ * G3 KAT per-vector loop routes through its own `formatG3DivergenceMessage`
+ * helper on divergence rather than `assertBytesEqual`'s generic shape).
+ * Extracted here per `.claude/rules/retrospect/typescript.md` §"[2026-04-20]
+ * Duplicated test-file code drifts silently" — previously duplicated in
+ * `falcon-eth.test.ts` and `falcon-eth.keygen.kat.test.ts`.
  */
 
 import assert from "node:assert/strict";
 
 import { bytesToHex } from "viem";
+
+/**
+ * Boolean-returning byte-array equality. Use `assertBytesEqual` instead when
+ * a throw-on-mismatch flow is appropriate; use this when the caller needs to
+ * branch (e.g., format a richer failure message before calling `assert.fail`).
+ */
+export function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
 
 export function assertBytesEqual(
   actual: Uint8Array,
