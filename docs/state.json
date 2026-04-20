@@ -3,7 +3,7 @@
   "flow": "greenfield",
   "version": "next-2.0",
   "created": "2026-04-18T18:46:16.472Z",
-  "lastUpdated": "2026-04-20T17:00:00.000Z",
+  "lastUpdated": "2026-04-20T17:10:00.000Z",
   "currentPhase": "implement",
   "currentStep": null,
   "currentCheckpoint": null,
@@ -28,8 +28,46 @@
         "name": "FalconEthAccount.sol + NatSpec + @custom:experimental",
         "status": "done",
         "committed": true
+      },
+      {
+        "id": "T3",
+        "name": "test/fixtures/falcon-eth.ts verifier + account factory",
+        "status": "done",
+        "committed": true
       }
-    ]
+    ],
+    "taskSummary": {
+      "compactedAt": "2026-04-20T17:10:00.000Z",
+      "tasksCompleted": 3,
+      "filesModified": [
+        "docs/amendments.md",
+        "docs/architecture.md",
+        "docs/plan.md",
+        "docs/stories/2-4.md",
+        "docs/sprint-status.yaml",
+        "docs/state.json",
+        "test/signers/falcon-eth.core.ts",
+        "test/signers/falcon-eth.pk-transform.kat.test.ts",
+        "contracts/FalconEthAccount.sol",
+        "test/fixtures/falcon-eth.ts"
+      ],
+      "testsAdded": 102,
+      "patternsEstablished": [
+        "A-007 structural-reconciliation oracle for G5 pk-transform: fixture encodes as uint256[32] (1024 B, Python ref sig_sol.py:48), preparePublicKeyForDeployment emits uint256[] (1088 B, on-chain setKey input). Test decodes both sides with decodeAbiParameters and compares element-wise bigint equality. Precedent: test/signers/mldsa-encoding.pk-transform.kat.test.ts:146-204.",
+        "preparePublicKeyForDeployment signature is single-factory for falcon-eth (keccakXofFactory only, accepted for NFR-11 symmetry but unused internally because falcon's forward-NTT is deterministic over raw pk). Distinct from ml-dsa-eth's two-factory binding (keccakXofFactory, keccakXofFactory). pkToNttCompact delegates to encodePublicKeyForZKNOX then decodes the uint256[] wrapper to recover the bigint[] shape.",
+        "FalconEthAccount.sol: 127 LOC structural mirror of MlDsaEthAccount.sol; wrapper-path import `./imports/FalconRef.sol` (NOT direct ETHFALCON/src/); _VERIFY_SELECTOR = bytes4(keccak256('verify(bytes,bytes32,bytes)')) — ADL-ambiguity-safe; try/catch → SignatureMalformed() on verifier revert; SIG_VALIDATION_FAILED on crypto failure. Dual-path walker (T5) will bind to the errorName on accountAddress.",
+        "FalconRef.sol SHA (9043bb6...9c) byte-preserved across T1/T2/T3 (AC-11 + AC-14 regression guards). No submodule-immutability violation.",
+        "test/fixtures/falcon-eth.ts: 98 LOC mirror of test/fixtures/mldsa-eth.ts; two-step simulate+write for setKey (viem typed-contract pattern); 20-byte SSTORE2 pointer-length check; cross-fixture network-sharing pattern (optional viem parameter to avoid HH3 EdrProvider isolation). registerPublicKey IS the T4/T5 entry point.",
+        "Shared test helpers come from test/utils/assert-bytes.ts; module-scope divergence-message helpers (no inline redefinition per retrospect/typescript.md §'Duplicated test-file code')."
+      ],
+      "deviations": [
+        "Rule 3 (T1): A-007 amendment — AC-1 oracle shape changed from raw Hex byte-equality to structural coefficient-equality. Architecture anticipated the divergence-probe fallback at docs/architecture.md:199 ('pick structural-decode oracle up front'). T1 code preserved as-is; test rewritten to structural decode; AC text + must_have truth amended inline; sweep grep clean post-commit."
+      ],
+      "verificationOnlyTasks": [],
+      "openIssues": [
+        "Pre-existing inaccuracy (out of 2-4 scope): docs/stories/1-1.md:342 describes fixture reshapedPublicKey as 'abi-encoded uint256[]' — actual layout is uint256[32] per scripts/generate-kat-fixtures.ts:1304 + A-007. Flagged in A-007; retrospective amendment of signed-off Story 1-1 is out of scope."
+      ]
+    }
   },
   "complexityTier": "medium",
   "phases": {
@@ -218,14 +256,14 @@
       }
     },
     "tasks": {
-      "totalCompleted": 18,
+      "totalCompleted": 19,
       "totalCompletedNoCommit": 0,
       "totalSkipped": 0,
       "totalRevisions": 1,
-      "totalVerificationCycles": 19,
-      "firstPassSuccess": 16,
+      "totalVerificationCycles": 20,
+      "firstPassSuccess": 17,
       "tddCount": 5,
-      "tddTotal": 11,
+      "tddTotal": 12,
       "avgVerificationCycles": 0
     },
     "codeReview": {
@@ -302,9 +340,9 @@
       }
     },
     "git": {
-      "totalCommits": 13,
-      "totalFilesChanged": 66,
-      "totalInsertions": 10641,
+      "totalCommits": 14,
+      "totalFilesChanged": 69,
+      "totalInsertions": 10792,
       "totalDeletions": 483,
       "testsAdded": 222
     }
