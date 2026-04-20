@@ -33,21 +33,35 @@ export class NotImplementedError extends Error {
  * `INVALID_INNER_SEED_LENGTH` is raised by the Falcon-ETH KAT surface
  * (`keygenInternal` in `falcon-eth.kat-internal.ts`) when the supplied
  * `innerSeed` is not a 48-byte `Uint8Array` (Story 2-1 AC-3).
+ *
+ * `SIGNING_BYTES_EXHAUSTED` is raised by the Falcon-ETH signer surfaces
+ * (`signWithKatBytes` in `falcon-eth.kat-internal.ts` — KAT path;
+ * `signUserOp` in `falcon-eth.ts` — production path) when the supplied
+ * `BytesReader` is over-drawn past the 88 B signing randomness budget (40 B
+ * salt + 48 B FFSampler seed per `docs/amendments.md` §A-005 "signingDrbg
+ * byte decomposition"). In the KAT path, over-draw indicates TS-side signer
+ * divergence from the ETHFALCON DRBG consumption contract; in the
+ * production path, it indicates an exhausted CSPRNG source (Story 2-3 AC-5).
  */
 export type SignerInputErrorCode =
   | "INVALID_SECRET_KEY_LENGTH"
   | "INVALID_MESSAGE"
   | "INVALID_CTX_LENGTH"
   | "INVALID_RND_LENGTH"
-  | "INVALID_INNER_SEED_LENGTH";
+  | "INVALID_INNER_SEED_LENGTH"
+  | "SIGNING_BYTES_EXHAUSTED";
 
 /**
  * Caller-provided input failed a pre-cryptographic validation check. Raised
- * by signer-surface functions — `signWithRnd`, `signUserOp`, `keygenInternal`
- * — before any cryptographic work, when caller-provided inputs fail length
- * or type checks. See {@link SignerInputErrorCode} for the exhaustive
- * error-code union covering message/secret-key length, ctx/rnd invariants
- * (shared core), and Falcon-ETH inner-seed length (Story 2-1 AC-3).
+ * by signer-surface functions — `signWithRnd`, `signUserOp`,
+ * `keygenInternal`, `signWithKatBytes` — before any cryptographic work (or,
+ * for `SIGNING_BYTES_EXHAUSTED`, at the randomness-source boundary inside
+ * the signing call), when caller-provided inputs fail length or type
+ * checks. See {@link SignerInputErrorCode} for the exhaustive error-code
+ * union covering message/secret-key length, ctx/rnd invariants (shared
+ * core), Falcon-ETH inner-seed length (Story 2-1 AC-3), and Falcon-ETH
+ * signer randomness-budget over-draw (Story 2-3 AC-5 — raised from both
+ * `signWithKatBytes` and `signUserOp`).
  */
 export class SignerInputError extends Error {
   readonly code: SignerInputErrorCode;
