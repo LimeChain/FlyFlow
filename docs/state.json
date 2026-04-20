@@ -3,7 +3,7 @@
   "flow": "greenfield",
   "version": "next-2.0",
   "created": "2026-04-18T18:46:16.472Z",
-  "lastUpdated": "2026-04-20T16:42:00.000Z",
+  "lastUpdated": "2026-04-20T17:00:00.000Z",
   "currentPhase": "implement",
   "currentStep": null,
   "currentCheckpoint": null,
@@ -20,6 +20,12 @@
       {
         "id": "T1",
         "name": "preparePublicKeyForDeployment + pkToNttCompact + G5 KAT (A-007 structural oracle)",
+        "status": "done",
+        "committed": true
+      },
+      {
+        "id": "T2",
+        "name": "FalconEthAccount.sol + NatSpec + @custom:experimental",
         "status": "done",
         "committed": true
       }
@@ -212,14 +218,14 @@
       }
     },
     "tasks": {
-      "totalCompleted": 17,
+      "totalCompleted": 18,
       "totalCompletedNoCommit": 0,
       "totalSkipped": 0,
       "totalRevisions": 1,
-      "totalVerificationCycles": 18,
-      "firstPassSuccess": 15,
+      "totalVerificationCycles": 19,
+      "firstPassSuccess": 16,
       "tddCount": 5,
-      "tddTotal": 10,
+      "tddTotal": 11,
       "avgVerificationCycles": 0
     },
     "codeReview": {
@@ -296,9 +302,9 @@
       }
     },
     "git": {
-      "totalCommits": 12,
-      "totalFilesChanged": 63,
-      "totalInsertions": 10514,
+      "totalCommits": 13,
+      "totalFilesChanged": 66,
+      "totalInsertions": 10641,
       "totalDeletions": 483,
       "testsAdded": 222
     }
