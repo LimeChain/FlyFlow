@@ -3,10 +3,28 @@
   "flow": "greenfield",
   "version": "next-2.0",
   "created": "2026-04-18T18:46:16.472Z",
-  "lastUpdated": "2026-04-20T15:57:58.000Z",
+  "lastUpdated": "2026-04-20T16:42:00.000Z",
   "currentPhase": "implement",
   "currentStep": null,
   "currentCheckpoint": null,
+  "currentStory": {
+    "storyId": "2-4",
+    "feature": "falcon-eth",
+    "slug": "integration-benchmark-readme",
+    "startedAt": "2026-04-20T16:02:00.000Z",
+    "wave": 5,
+    "size": "L",
+    "dependencies": ["2-3"],
+    "amendments": ["A-007"],
+    "tasks": [
+      {
+        "id": "T1",
+        "name": "preparePublicKeyForDeployment + pkToNttCompact + G5 KAT (A-007 structural oracle)",
+        "status": "done",
+        "committed": true
+      }
+    ]
+  },
   "complexityTier": "medium",
   "phases": {
     "research": {
@@ -37,7 +55,6 @@
   "storiesDone": 5,
   "storiesTotal": 6,
   "changeStories": [],
-  "currentStory": null,
   "lastCompletedStory": {
     "storyId": "2-3",
     "feature": "falcon-eth",
@@ -191,18 +208,18 @@
       "sizeDistribution": {
         "S": 4,
         "M": 1,
-        "L": 0
+        "L": 1
       }
     },
     "tasks": {
-      "totalCompleted": 16,
+      "totalCompleted": 17,
       "totalCompletedNoCommit": 0,
       "totalSkipped": 0,
       "totalRevisions": 1,
-      "totalVerificationCycles": 16,
+      "totalVerificationCycles": 18,
       "firstPassSuccess": 15,
-      "tddCount": 4,
-      "tddTotal": 9,
+      "tddCount": 5,
+      "tddTotal": 10,
       "avgVerificationCycles": 0
     },
     "codeReview": {
@@ -215,9 +232,9 @@
       "findingsDeferred": 2
     },
     "quality": {
-      "interfaceAudits": 6,
+      "interfaceAudits": 7,
       "interfaceMismatches": 0,
-      "amendments": 5,
+      "amendments": 6,
       "concerns": 2,
       "concernsBySeverity": {
         "critical": 0,
@@ -279,11 +296,11 @@
       }
     },
     "git": {
-      "totalCommits": 11,
-      "totalFilesChanged": 55,
-      "totalInsertions": 9347,
-      "totalDeletions": 465,
-      "testsAdded": 120
+      "totalCommits": 12,
+      "totalFilesChanged": 63,
+      "totalInsertions": 10514,
+      "totalDeletions": 483,
+      "testsAdded": 222
     }
   },
   "baselineTests": {

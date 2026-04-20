@@ -673,3 +673,74 @@ Historical A-005 text is **preserved in place** as an audit trail (per `.claude/
 - `docs/sprint-status.yaml` Story 2-3: `size: L` → `size: S`; `amendments: ["A-006"]`.
 - `docs/state.json`: `metrics.quality.amendments` 4 → 5; `currentStory.amendments` includes `"A-006"`; `lastUpdated` bumped.
 - Plan/architecture phrasing for Story 2-3 is **superseded** by this amendment for all Gate-5 verification, code-review, and downstream-story-creation purposes (Stories 2-3 T2/T3/T4, 2-4).
+
+---
+
+## A-007: G5 AC-1 oracle — structural coefficient-equality, not `Hex` byte-equality (fixture `uint256[32]` vs `encodePublicKeyForZKNOX` `uint256[]`)
+
+**Discovered:** Story 2-4 T1 TDD — RED→AC-2-GREEN surfaced a 64-byte divergence between `preparePublicKeyForDeployment(rawPk, keccakXofFactory)` (1088 B, dynamic `uint256[]` ABI layout) and `v.reshapedPublicKey` (1024 B, fixed `uint256[32]` ABI layout) on vec-0 (AC-1 fails 100/100 on the raw-byte compare; AC-2 passes 2/2).
+
+**Classification:** Rule 3 (Significant — AC wording revision + test-oracle shape clarification).
+
+### Root cause — the two ABI layouts cannot be simultaneously byte-identical
+
+Three sources record the same 32 `uint256` semantic content in two different ABI-encoded shapes:
+
+1. **Fixture `reshapedPublicKey` is `uint256[32]` (fixed, 1024 B).** `scripts/generate-kat-fixtures.ts:1304` calls `abi_encode(["uint256[32]"], [pk_compact])`. This matches the Python reference `ETHFALCON/pythonref/sig_sol.py:48` which encodes the on-chain call using `['uint256[32]', 'bytes', 'uint256[32]']`.
+2. **Helper `encodePublicKeyForZKNOX` emits `uint256[]` (dynamic, 1088 B).** `test/signers/falcon-encoding.ts:147` calls `encodeAbiParameters([{ type: "uint256[]" }], [compact])` — the 64-byte delta is the dynamic prefix `[offset=32][length=32]`.
+3. **On-chain `ZKNOX_ethfalcon.setKey/verify` expects dynamic `uint256[]`.** `ETHFALCON/src/ZKNOX_ethfalcon.sol:85` does `abi.decode(SSTORE2.read(pkContractAddress), (uint256[]))`. Any payload passed to `setKey` must be valid `abi.encode(uint256[])`.
+
+The 32 `uint256` coefficients are the authoritative semantic content; the ABI-layout wrapper is incidental. Fixture + Python ref use the fixed-size encoding because that was convenient for their purpose (statically-sized Solidity call ABI); the on-chain verifier reads the same coefficients out of a dynamic encoding because `abi.decode((uint256[]))` is the supported Solidity read path; our helper emits dynamic because the on-chain path requires it.
+
+### Architecture anticipated this — divergence-probe fallback was already in the design
+
+`docs/architecture.md:199` (G5 row) explicitly says: *"**Pk-format divergence probe (lesson 5.1 carry-over):** spot-check vec 0's `reshapedPublicKey.length` against TS output length BEFORE writing the G5 test; if formats diverge, pick structural-decode oracle up front (`test/signers/mldsa-encoding.pk-transform.kat.test.ts` ~200 LOC template)."*
+
+T1's TDD cycle IS the divergence probe (just executed after writing the naive test rather than before). The architecture-specified fallback is now taken: structural-decode oracle.
+
+### Precedent — mldsa-eth G3 pk-transform KAT uses exactly this pattern
+
+`test/signers/mldsa-encoding.pk-transform.kat.test.ts:146-204` (landed with ml-dsa-eth Story 5 G3 gate) handles the same class of ABI-wrapper mismatch: `decodeAbiParameters` on both actual and expected, element-wise comparison of the inner `uint256[]` / `bytes` arrays. Falcon-ETH's case is simpler — one level of decoding instead of two — but the pattern is identical.
+
+### Amended interpretation — AC-1 (G5 pk-transform)
+
+Before (plan §"Story 2-4" line 175; `docs/stories/2-4.md:40`; must_haves truth `docs/stories/2-4.md:472`):
+> Given vec N's `publicKey` from `.rsp`, When `preparePublicKeyForDeployment(rawPk, keccakXofFactory)` runs, Then output `Hex` byte-equals `reshapedPublicKey` for that vector — over 100 vectors.
+
+After (A-007):
+> Given vec N's `publicKey` from `.rsp`, When `preparePublicKeyForDeployment(rawPk, keccakXofFactory)` runs, Then `decodeAbiParameters([{type:"uint256[]"}], output)` returns a `bigint[]` whose elements are pairwise-equal to `decodeAbiParameters([{type:"uint256[32]"}], v.reshapedPublicKey)` — over 100 vectors. The two ABI encodings (`uint256[]` vs `uint256[32]`) are incidentally different wrappers around the same 32 `uint256` coefficients; structural coefficient-equality is the semantic oracle.
+
+### Resolution — no code path changes, test oracle + AC wording revised
+
+- **Code:** `preparePublicKeyForDeployment(rawPk, _xof) = encodePublicKeyForZKNOX(rawPk)` is preserved as-is — the output is the correct shape for on-chain `setKey` (T3 consumer) and for the structural oracle (T1 KAT consumer). `pkToNttCompact` delegates to the same underlying helper and decodes the `uint256[]` wrapper. Both exports are NFR-11 cross-scheme-symmetric with `mldsa-encoding.ts#preparePublicKeyForDeployment`.
+- **Test (`test/signers/falcon-eth.pk-transform.kat.test.ts`):** Per-vector AC-1 block replaces raw `actualHex !== v.reshapedPublicKey` with `decodeAbiParameters([{type:"uint256[]"}], actualHex)` vs `decodeAbiParameters([{type:"uint256[32]"}], v.reshapedPublicKey)` element-wise equality. The module-scope divergence-message helper is generalized — first-differing-coefficient report with ±3 neighbours and the same three-cause hint block.
+- **AC-2 (G5 structural sub-check):** unchanged — `pkToNttCompact` still returns `bigint[]` of length 32, every element `< 2^256`. AC-2 becomes the primary oracle for coefficient-level regression (AC-1 becomes a stricter variant that also verifies the `abi.encode` wrapper is valid dynamic `uint256[]`).
+- **Downstream:** T3 fixture factory + T4 G6 happy path + T5 G6 failure paths all consume `preparePublicKeyForDeployment`'s `Hex` output unchanged (still `uint256[]`-encoded, still passable to `setKey`). No ripple to Story 2-4 T2/T3/T4/T5/T6/T7.
+
+### Impact on downstream stories
+
+- **Story 2-4 T1 (THIS task):** Test oracle + AC text + must_have truth amended. Implementation code (`falcon-eth.core.ts` append) preserved verbatim.
+- **Story 2-4 T2/T3/T4/T5/T6/T7:** Unaffected. T3's `registerPublicKey` continues to call `preparePublicKeyForDeployment` → `setKey` (the `uint256[]` output is exactly what the on-chain verifier expects).
+
+### Affected loci — sweep at commit time
+
+This amendment lands atomically with the T1 commit. Post-commit `git grep -iE 'byte-equals.*reshapedPublicKey|reshapedPublicKey.*byte-equal|Hex.*byte-equal.*reshapedPublicKey'` across `{docs/stories/2-4.md, docs/architecture.md, docs/plan.md, test/signers}` returns only (a) this amendment's own explanatory text, (b) amendment-callout annotations on per-line plan/architecture quotes, (c) archived mldsa-eth-era docs outside falcon-eth scope. Specific loci amended in this commit:
+
+- `docs/stories/2-4.md` — AC-1 text (line 40); §"Architecture Guardrails §G5" §82 comment inside the code block (the `AC-1 (G5 KAT) compares the Hex output byte-for-byte` annotation); must_haves truth at line 472; inline A-007 callout on the AC-1 line linking here.
+- `docs/architecture.md` — G5 row (line 199): inline A-007 callout confirming that the divergence-probe fallback was taken.
+- `docs/plan.md` — Story 2-4 AC-1 (line 175): inline `[A-007 callout]` following the A-004/A-005/A-006 pattern. Verbatim plan text is preserved per DD-26 commit-discipline; the callout redirects readers forward.
+- `test/signers/falcon-eth.pk-transform.kat.test.ts` — JSDoc header (lines 4-7) reframed to "structural coefficient-equality"; per-vector AC-1 block replaces raw `!==` with `decodeAbiParameters`-based structural comparison; `formatG5DivergenceMessage` helper generalized to coefficient-offset reporting.
+- `test/signers/falcon-eth.core.ts` — JSDoc on `preparePublicKeyForDeployment` (line 293-294, 314-315): reframe "byte-equality against `v.reshapedPublicKey`" as "structural coefficient-equality with `v.reshapedPublicKey`"; the delegate code itself is unchanged.
+
+### Known pre-existing inaccuracy — flagged, out of 2-4 scope
+
+`docs/stories/1-1.md:342` describes fixture `reshapedPublicKey` as "abi-encoded `uint256[]`". The actual fixture layout is `uint256[32]` (confirmed at `scripts/generate-kat-fixtures.ts:1304` + this amendment's root-cause analysis). Story 1-1 is signed off (post-Gate-5), so retroactively amending its must_haves is out of 2-4 scope. Future feature hardening may sweep this line alongside a broader fixture-schema audit; for now it is a known descriptive inaccuracy — implementers reading Story 1-1 as source-of-truth for fixture bytes should instead trust `scripts/generate-kat-fixtures.ts:1296-1308` and this amendment.
+
+### Classification + ledger updates
+
+- **Classification:** Rule 3 (Significant — AC wording revision + test oracle shape).
+- **Stories:** 2-4 (`integration-benchmark-readme`) — primary. No downstream stories (2-4 is the feature capstone).
+- **`docs/sprint-status.yaml` Story 2-4:** `amendments: ["A-007"]` (first entry).
+- **`docs/state.json`:** `metrics.quality.amendments` 5 → 6; `currentStory.amendments` includes `"A-007"`; `lastUpdated` bumped.
+
+Plan/architecture phrasing for Story 2-4 G5 oracle is **superseded** by this amendment for all Gate-5 verification, code-review, and T1 test-file shape purposes.

@@ -172,7 +172,7 @@ architecture: docs/architecture.md
 7. **T7 — README 5-scheme attribution** + `@custom:experimental` warning + NFR-5 gas-cap runbook (AC-U-2).
 
 **Acceptance Criteria (BDD):**
-- **AC-1 (G5 pk-transform):** Given vec N's `publicKey` from `.rsp`, When `preparePublicKeyForDeployment(rawPk, keccakXofFactory)` runs, Then output `Hex` byte-equals `reshapedPublicKey` for that vector — over 100 vectors.
+- **AC-1 (G5 pk-transform) [amended by A-007]:** Given vec N's `publicKey` from `.rsp`, When `preparePublicKeyForDeployment(rawPk, keccakXofFactory)` runs, Then output `Hex` byte-equals `reshapedPublicKey` for that vector — over 100 vectors. [**A-007**: oracle superseded — fixture uses `uint256[32]` (1024 B), `preparePublicKeyForDeployment` emits `uint256[]` (1088 B, required by on-chain `ZKNOX_ethfalcon.setKey`). The 64 B delta is the dynamic-array prefix; same 32 coefficients on both sides. Test uses `decodeAbiParameters` on both and compares element-wise. See `docs/amendments.md` §A-007 for root cause + precedent (`test/signers/mldsa-encoding.pk-transform.kat.test.ts:146-204`).]
 - **AC-2 (G5 structural sub-check):** Given the same input, When `pkToNttCompact` is called, Then returns `bigint[]` of length 32, every element `< 2^256`.
 - **AC-3 (G6 happy path):** Given a `FalconEthAccount` deployed with a valid `publicKeyPointer`, When a user-op signed with the matching sk is submitted via `validateUserOp`, Then EntryPoint accepts with `SIG_VALIDATION_SUCCESS`; `verifyGas < 16_777_216`.
 - **AC-4 (G6 wrong-key reject):** Given a user-op signed with a DIFFERENT Falcon-ETH key, When `validateUserOp` runs, Then returns `SIG_VALIDATION_FAILED` (no revert).

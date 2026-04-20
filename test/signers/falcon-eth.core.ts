@@ -23,7 +23,10 @@ import {
   falcon512paddedOpts,
   type Falcon,
 } from "@noble/post-quantum/falcon.js";
-import { keccak256 } from "viem";
+import { decodeAbiParameters, keccak256, type Hex } from "viem";
+
+import { encodePublicKeyForZKNOX } from "./falcon-encoding.js";
+import type { XofFactory } from "./mldsa-encoding.js";
 
 // === Falcon-512 constants (authoritative — from ZKNOX_HashToPoint.sol) =====
 
@@ -222,3 +225,109 @@ export const falcon512paddedEth: Falcon = genFalcon({
   ...falcon512paddedOpts,
   hashToPoint: hashToPointEVM,
 });
+
+// === Falcon-ETH G5 pk-transform (Story 2-4 T1; AC-1 + AC-2) ================
+
+/**
+ * Compact NTT-domain Falcon-512 public key representation.
+ *
+ * Decodes the 897 B raw NIST Falcon-512 public key, applies forward NTT to the
+ * `h` polynomial, and packs the 512 coefficients (≤14 bits each, space-padded
+ * to 16 bits) into 32 `uint256` words — one `bigint` per word. THIS IS the
+ * intermediate shape that `preparePublicKeyForDeployment` ABI-encodes.
+ *
+ * The byte-difference between `falcon` and `falcon-eth` at the pk-transform
+ * layer is ZERO per DD (both schemes share the raw→NTT→compact transform —
+ * ZKNOX's ETHFALCON uses the same packing as the non-ETH falcon verifier).
+ * This export therefore delegates to `encodePublicKeyForZKNOX` at
+ * `falcon-encoding.ts:128` and decodes the outer `abi.encode([uint256[]])`
+ * to recover the `bigint[]` shape. AC-1 (G5 KAT) is the empirical guard
+ * against any future DD drift; if falcon-eth ever diverges from falcon at
+ * this layer, the KAT will surface it before the delegation assumption
+ * causes an on-chain failure.
+ *
+ * The `xofFactory` parameter is UNUSED inside — it exists for NFR-11 cross-
+ * scheme symmetry with `mldsa-encoding.ts#preparePublicKeyForDeployment`
+ * (which takes two `XofFactory` arguments because ml-dsa-eth drives
+ * `aHat` ingestion and `tr` H-of-pk through XOF streams). Falcon-ETH's
+ * NTT ingestion is deterministic over the 897 B raw key — no XOF needed —
+ * but keeping the parameter preserves the 5-scheme function-shape
+ * invariant that a future NFR-11 structural grep asserts.
+ *
+ * AC-2 (G5 structural sub-check) asserts `returned.length === 32` AND
+ * `returned[i] < 2^256` for every `i`. Both invariants are guaranteed by
+ * `encodePublicKeyForZKNOX`'s internal `compactPoly256(..., 16)` call
+ * (16 coefficients × 16 bits per packed word ⇒ 32 uint256 words) — this
+ * export is a thin projection.
+ *
+ * @param rawPk 897-byte raw Falcon-512 NIST public key (header byte 0x09 +
+ *              896 byte 14-bit-MSB-packed `h` polynomial body).
+ * @param _xofFactory Unused; accepted for NFR-11 cross-scheme symmetry with
+ *                    `mldsa-encoding.ts#preparePublicKeyForDeployment`.
+ *                    Callers pass `keccakXofFactory` by convention.
+ * @returns `bigint[]` of length 32, every element `< 2^256`.
+ */
+export function pkToNttCompact(
+  rawPk: Uint8Array,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- NFR-11 shape
+  _xofFactory: XofFactory,
+): bigint[] {
+  const encoded = encodePublicKeyForZKNOX(rawPk);
+  const [compact] = decodeAbiParameters(
+    [{ type: "uint256[]" }],
+    encoded,
+  );
+  // `decodeAbiParameters` returns `readonly bigint[]` for `uint256[]`; we
+  // project to a plain mutable `bigint[]` to match the declared signature
+  // (callers may iterate; immutability is not a stated contract).
+  return [...compact];
+}
+
+/**
+ * Prepare a Falcon-ETH public key for on-chain deployment via `setKey`.
+ *
+ * Produces the `abi.encode([uint256[]])` hex payload `ZKNOX_ethfalcon.setKey`
+ * writes via SSTORE2 — byte-identical to the non-ETH `falcon` path per DD
+ * (ETHFALCON's `ZKNOX_ethfalcon` uses the same `compactPoly256` packing over
+ * the same forward-NTT `h` as `ZKNOX_falcon`). THIS IS the G5 gate surface.
+ *
+ * AC-1 oracle (per `docs/amendments.md` §A-007): structural coefficient-
+ * equality against `v.reshapedPublicKey`, not raw `Hex` byte-equality. The
+ * fixture encodes the same 32 `uint256` coefficients as `uint256[32]`
+ * (fixed, 1024 B, matches Python ref `ETHFALCON/pythonref/sig_sol.py:48`);
+ * this export emits `uint256[]` (dynamic, 1088 B, required by on-chain
+ * `abi.decode(data, (uint256[]))`). Same 32 coefficients wrapped in two
+ * ABI shapes — the 64-byte delta is the dynamic-array `[offset][length]`
+ * prefix. AC-1 decodes both sides with `decodeAbiParameters` and compares
+ * the resulting `bigint[]`s element-wise across ≥100 KAT vectors.
+ *
+ * NFR-11 cross-scheme symmetry: the signature mirrors
+ * `mldsa-encoding.ts#preparePublicKeyForDeployment`:
+ *   - Same function name
+ *   - Same `Hex` return type
+ *   - Same caller pattern: `const payload = preparePublicKeyForDeployment(rawPk, factory);
+ *     await falconEthVerifier.write.setKey([payload])`
+ *
+ * Delegates to `encodePublicKeyForZKNOX` — single source of truth for the
+ * raw→NTT→compact→abi.encode transform. The `xofFactory` parameter is not
+ * consumed internally (Falcon-ETH's NTT is deterministic over the raw
+ * public-key bytes; no XOF-driven ingestion at pk-transform time). Callers
+ * pass `keccakXofFactory` by convention to keep the 5-scheme call-site
+ * shape uniform.
+ *
+ * @param rawPk 897-byte raw Falcon-512 NIST public key.
+ * @param _xofFactory Unused; accepted for NFR-11 cross-scheme symmetry.
+ *                    Callers pass `keccakXofFactory` by convention.
+ * @returns `Hex` payload directly passable to `falconEthVerifier.setKey(hex)`
+ *          (dynamic `uint256[]` ABI-encoded). Coefficient-equal to the
+ *          `reshapedPublicKey` fixture field (which uses `uint256[32]`
+ *          encoding) over the full KAT corpus — AC-1 empirical guard per
+ *          A-007 structural oracle.
+ */
+export function preparePublicKeyForDeployment(
+  rawPk: Uint8Array,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- NFR-11 shape
+  _xofFactory: XofFactory,
+): Hex {
+  return encodePublicKeyForZKNOX(rawPk);
+}
