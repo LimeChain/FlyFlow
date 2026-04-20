@@ -1,6 +1,7 @@
 .claude
 docs/.lock
 docs/.quick-lock
+CLAUDE.local.md
 
 # Node
 node_modules/
