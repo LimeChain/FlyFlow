@@ -12,7 +12,7 @@
   },
   "devDependencies": {
     "@account-abstraction/contracts": "^0.7.0",
-    "@noble/post-quantum": "^0.6.1",
+    "@noble/post-quantum": "git+ssh://git@github.com/LimeChain/noble-post-quantum-eth.git#falcon-eth-hashtopoint-injection",
     "@nomicfoundation/hardhat-toolbox-viem": "^5.0.3",
     "@types/node": "^22.19.17",
     "hardhat": "^3.3.0",

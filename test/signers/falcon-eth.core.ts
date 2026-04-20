@@ -18,6 +18,11 @@
  * @custom:experimental
  */
 
+import {
+  genFalcon,
+  falcon512paddedOpts,
+  type Falcon,
+} from "@noble/post-quantum/falcon.js";
 import { keccak256 } from "viem";
 
 // === Falcon-512 constants (authoritative — from ZKNOX_HashToPoint.sol) =====
@@ -185,3 +190,35 @@ export function hashToPointEVM(
 
   return output;
 }
+
+// === Falcon-ETH signer instance (Story 2-3 T2; docs/amendments.md §A-006) =====
+
+/**
+ * Falcon-ETH variant of noble's `falcon512padded` — swaps the factory's
+ * `HashToPoint` binding for `hashToPointEVM` above (Keccak256-based,
+ * byte-identical to ETHFALCON's Solidity + Python references per G2 KAT
+ * at `test/signers/falcon-eth.core.kat.test.ts`).
+ *
+ * The `falcon512paddedOpts` spread carries the fork's
+ * ETHFALCON-compatible rejection bound — `compress(s[1], 625)` at
+ * `ETHFALCON/pythonref/falcon.py:474`. Noble's unpadded `falcon512`
+ * uses a looser bound (711 bytes), a different acceptance criterion
+ * that produces different s2 polynomials on rejection iterations and
+ * would break G4 byte-identity against the `.rsp` corpus. Consuming
+ * the fork-exported opts bundle at `@noble/post-quantum/falcon.js`
+ * makes the parity point implicit — no magic numbers in our repo, no
+ * drift risk if noble ever re-tunes the padded construction.
+ *
+ * The `: Falcon` annotation is load-bearing: the spread + `hashToPoint`
+ * injection makes `genFalcon`'s return type inference-unfriendly; the
+ * explicit annotation documents the intended surface and helps tsc.
+ *
+ * Consumed by:
+ *   - `test/signers/falcon-eth.kat-internal.ts#signWithKatBytes` (Story 2-3 T3)
+ *   - `test/signers/falcon-eth.ts#signUserOp` (Story 2-3 T3)
+ *   - G4 KAT test at `test/signers/falcon-eth.sign.kat.test.ts` (Story 2-3 T4)
+ */
+export const falcon512paddedEth: Falcon = genFalcon({
+  ...falcon512paddedOpts,
+  hashToPoint: hashToPointEVM,
+});
