@@ -3,7 +3,7 @@
   "flow": "greenfield",
   "version": "next-2.0",
   "created": "2026-04-18T18:46:16.472Z",
-  "lastUpdated": "2026-04-20T17:55:00.000Z",
+  "lastUpdated": "2026-04-20T18:10:00.000Z",
   "currentPhase": "implement",
   "currentStep": null,
   "currentCheckpoint": null,
@@ -54,6 +54,12 @@
       {
         "id": "T6",
         "name": "5-scheme bench + SCHEME_DEPLOYERS registry + pairwise delta report + AC-10 naming grep (AC-7/8/9/10/13)",
+        "status": "done",
+        "committed": true
+      },
+      {
+        "id": "T7",
+        "name": "README 5-scheme attribution + NFR-5 OOG gas-cap runbook + runbook test (AC-12/FR-20)",
         "status": "done",
         "committed": true
       }
@@ -300,14 +306,14 @@
       }
     },
     "tasks": {
-      "totalCompleted": 22,
+      "totalCompleted": 23,
       "totalCompletedNoCommit": 0,
       "totalSkipped": 0,
       "totalRevisions": 1,
-      "totalVerificationCycles": 23,
-      "firstPassSuccess": 20,
-      "tddCount": 7,
-      "tddTotal": 15,
+      "totalVerificationCycles": 24,
+      "firstPassSuccess": 21,
+      "tddCount": 8,
+      "tddTotal": 16,
       "avgVerificationCycles": 0
     },
     "codeReview": {
@@ -384,11 +390,11 @@
       }
     },
     "git": {
-      "totalCommits": 17,
-      "totalFilesChanged": 87,
-      "totalInsertions": 12120,
-      "totalDeletions": 675,
-      "testsAdded": 229
+      "totalCommits": 18,
+      "totalFilesChanged": 91,
+      "totalInsertions": 12220,
+      "totalDeletions": 684,
+      "testsAdded": 233
     }
   },
   "baselineTests": {
