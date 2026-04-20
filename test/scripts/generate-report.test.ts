@@ -34,12 +34,13 @@ function ok(
 }
 
 describe("renderReport", () => {
-  it("AC-1: renders 4 ok rows with overhead, variance, calldata/execution split", () => {
+  it("AC-1: renders 5 ok rows with overhead, variance, calldata/execution split", () => {
     const results: BenchResult[] = [
       ok("ecdsa", 100_000n, 1_000n),
       ok("falcon", 4_000_000n, 14_000n),
       ok("mldsa", 8_000_000n, 38_000n),
       ok("mldsa-eth", 8_500_000n, 38_000n),
+      ok("falcon-eth", 1_600_000n, 14_000n),
     ];
     const md = renderReport(results, FIXED_TS);
 
@@ -48,6 +49,7 @@ describe("renderReport", () => {
     assert.match(md, /\| falcon \| ok \| 4000000 \|/);
     assert.match(md, /\| mldsa \| ok \| 8000000 \|/);
     assert.match(md, /\| mldsa-eth \| ok \| 8500000 \|/);
+    assert.match(md, /\| falcon-eth \| ok \| 1600000 \|/);
     // ECDSA gets em-dash overhead (self)
     assert.match(md, /\| ecdsa \| ok \|[^|]*\|[^|]*\|[^|]*\| — \|/);
     // Falcon overhead = (4_000_000 - 100_000)/100_000 = 39.0 → +3900.0%
@@ -56,8 +58,12 @@ describe("renderReport", () => {
     assert.match(md, /\+7900\.0%/);
     // ML-DSA-ETH overhead = (8_500_000 - 100_000)/100_000 = 84.0 → +8400.0%
     assert.match(md, /\+8400\.0%/);
+    // Falcon-ETH overhead = (1_600_000 - 100_000)/100_000 = 15.0 → +1500.0%
+    assert.match(md, /\+1500\.0%/);
     // Variance scientific form
     assert.match(md, /1\.00e-4/);
+    // Story 2-4 AC-8 — pairwise delta section present
+    assert.match(md, /ML-DSA-ETH ↔ Falcon-ETH pairwise delta/);
   });
 
   it("AC-2: failed scheme still emits a row with FAILED token + reason", () => {
@@ -66,6 +72,7 @@ describe("renderReport", () => {
       { scheme: "falcon", status: "failed", reason: "AA23 reverted: SignatureMalformed" },
       ok("mldsa", 8_000_000n, 38_000n),
       ok("mldsa-eth", 8_500_000n, 38_000n),
+      ok("falcon-eth", 1_600_000n, 14_000n),
     ];
     const md = renderReport(results, FIXED_TS);
 
@@ -87,17 +94,20 @@ describe("renderReport", () => {
       ok("falcon", 4_000_000n, 14_000n),
       ok("mldsa", 8_000_000n, 38_000n),
       ok("mldsa-eth", 8_500_000n, 38_000n),
+      ok("falcon-eth", 1_600_000n, 14_000n),
     ];
     const md = renderReport(results, FIXED_TS);
 
     assert.match(md, /ECDSA baseline run failed/);
-    // Every row's overhead column is n/a. Tight regex binds to the
-    // start of each scheme row so `mldsa-eth` doesn't double-match
-    // through the `mldsa` prefix.
+    // Every row's overhead column is n/a. Regex pins to the row start and
+    // uses longest-form-first alternation so `mldsa-eth` / `falcon-eth`
+    // aren't shadowed by their shorter `mldsa` / `falcon` prefixes.
     const dataRows = md
       .split("\n")
-      .filter((l) => /^\| (ecdsa|falcon|mldsa|mldsa-eth) \|/.test(l));
-    assert.equal(dataRows.length, 4);
+      .filter((l) =>
+        /^\| (ecdsa|falcon-eth|falcon|mldsa-eth|mldsa) \|/.test(l),
+      );
+    assert.equal(dataRows.length, 5);
     for (const row of dataRows) {
       assert.match(row, /\| n\/a \|/, `row missing n/a overhead: ${row}`);
     }
@@ -119,6 +129,7 @@ describe("renderReport", () => {
       ok("falcon", 200n, 10n),
       ok("mldsa", 300n, 20n),
       ok("mldsa-eth", 400n, 30n),
+      ok("falcon-eth", 500n, 40n),
     ];
     assert.throws(
       () => renderReport(results, FIXED_TS),
@@ -129,7 +140,7 @@ describe("renderReport", () => {
   it("input validation: rejects wrong record count", () => {
     assert.throws(
       () => renderReport([ok("ecdsa", 100n, 10n)], FIXED_TS),
-      /expected 4 BenchResult records, got 1/,
+      /expected 5 BenchResult records, got 1/,
     );
   });
 
@@ -143,6 +154,7 @@ describe("renderReport", () => {
       },
       ok("mldsa", 8_000_000n, 38_000n),
       ok("mldsa-eth", 8_500_000n, 38_000n),
+      ok("falcon-eth", 1_600_000n, 14_000n),
     ];
     const md = renderReport(results, FIXED_TS);
     const failedRow = md
@@ -173,6 +185,7 @@ describe("renderReport", () => {
       ok("falcon", 101_385n, 1_385n), // calldataGas = 1385, exec = 100000
       ok("mldsa", 200_000n, 2_000n),
       ok("mldsa-eth", 210_000n, 2_100n),
+      ok("falcon-eth", 105_000n, 1_500n),
     ];
     const md = renderReport(results, FIXED_TS);
     // 1385 / 101385 = 1.3661...% → rounds half-up to 1.4%
@@ -189,6 +202,7 @@ describe("renderReport", () => {
       ok("ecdsa", 200n, 20n),
       ok("ecdsa", 300n, 30n),
       ok("ecdsa", 400n, 40n),
+      ok("ecdsa", 500n, 50n),
     ];
     assert.throws(
       () => renderReport(results, FIXED_TS),

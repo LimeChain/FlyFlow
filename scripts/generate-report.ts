@@ -27,7 +27,7 @@
 
 import { readFile, writeFile } from "node:fs/promises";
 
-type Scheme = "ecdsa" | "falcon" | "mldsa" | "mldsa-eth";
+type Scheme = "ecdsa" | "falcon" | "mldsa" | "mldsa-eth" | "falcon-eth";
 
 export type BenchResult =
   | {
@@ -60,6 +60,7 @@ const SCHEMES: readonly Scheme[] = [
   "falcon",
   "mldsa",
   "mldsa-eth",
+  "falcon-eth",
 ] as const;
 
 /**
@@ -108,6 +109,53 @@ function overheadPct(scheme: bigint, baseline: bigint): string {
   const negative = diff < 0n;
   const abs = negative ? -diff : diff;
   return `${negative ? "-" : "+"}${fmtBpToPct((abs * 10000n) / baseline)}`;
+}
+
+/**
+ * Story 2-4 AC-8 / AC-U-1 — render a labelled `ML-DSA-ETH ↔ Falcon-ETH
+ * pairwise delta` section. Determinism: every number is read from the
+ * snapshot passed in by `renderReport` (which itself reads from the
+ * unchanged `gas-data.json`), so two consecutive `npm run report` runs on
+ * an unchanged snapshot produce byte-identical output (AC-13).
+ *
+ * Returned lines are markdown; caller concatenates them into the report's
+ * line buffer below the main table.
+ */
+function renderPairwiseDelta(
+  mldsaEth: Extract<BenchResult, { status: "ok" }> | undefined,
+  falconEth: Extract<BenchResult, { status: "ok" }> | undefined,
+): string[] {
+  const lines: string[] = [];
+  lines.push("## ML-DSA-ETH ↔ Falcon-ETH pairwise delta");
+  lines.push("");
+  if (mldsaEth === undefined || falconEth === undefined) {
+    lines.push(
+      "> ⚠ Pairwise delta unavailable — one or both of `mldsa-eth` / `falcon-eth` failed in the bench run.",
+    );
+    return lines;
+  }
+  lines.push("| Metric | ML-DSA-ETH | Falcon-ETH | Delta |");
+  lines.push("|---|---:|---:|---:|");
+  const gasDeltaAbs =
+    mldsaEth.totalGas > falconEth.totalGas
+      ? mldsaEth.totalGas - falconEth.totalGas
+      : falconEth.totalGas - mldsaEth.totalGas;
+  const gasDeltaSign =
+    falconEth.totalGas >= mldsaEth.totalGas ? "+" : "-";
+  const gasDeltaPct = fmtBpToPct((gasDeltaAbs * 10000n) / mldsaEth.totalGas);
+  lines.push(
+    `| Verify gas (first run) | ${mldsaEth.totalGas} | ${falconEth.totalGas} | ${gasDeltaSign}${gasDeltaPct} |`,
+  );
+  const cdDeltaAbs =
+    mldsaEth.calldataGas > falconEth.calldataGas
+      ? mldsaEth.calldataGas - falconEth.calldataGas
+      : falconEth.calldataGas - mldsaEth.calldataGas;
+  const cdDeltaSign =
+    falconEth.calldataGas >= mldsaEth.calldataGas ? "+" : "-";
+  lines.push(
+    `| Calldata gas | ${mldsaEth.calldataGas} | ${falconEth.calldataGas} | ${cdDeltaSign}${cdDeltaAbs} |`,
+  );
+  return lines;
 }
 
 function escapeMarkdownCell(s: string): string {
@@ -227,6 +275,23 @@ export function renderReport(
     lines.push("");
     lines.push(...footnotes);
   }
+
+  // Story 2-4 AC-8 / AC-U-1 — pairwise delta section at the end of the
+  // report. Numbers flow from the snapshot (already hydrated into
+  // `results`), so the section is deterministic under AC-13.
+  lines.push("");
+  const mldsaEthResult = byScheme.get("mldsa-eth");
+  const falconEthResult = byScheme.get("falcon-eth");
+  const mldsaEthOk =
+    mldsaEthResult !== undefined && mldsaEthResult.status === "ok"
+      ? mldsaEthResult
+      : undefined;
+  const falconEthOk =
+    falconEthResult !== undefined && falconEthResult.status === "ok"
+      ? falconEthResult
+      : undefined;
+  lines.push(...renderPairwiseDelta(mldsaEthOk, falconEthOk));
+
   lines.push("");
   return lines.join("\n");
 }

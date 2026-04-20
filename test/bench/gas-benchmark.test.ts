@@ -35,35 +35,25 @@ import { describe, it } from "node:test";
 
 import hre from "hardhat";
 import {
-  encodeFunctionData,
   hexToBytes,
   parseEther,
   type Hex,
 } from "viem";
 
-import { deployFalconVerifier, registerPublicKey as registerFalconKey } from "../fixtures/falcon.js";
+import { SCHEME_DEPLOYERS } from "../signers/deployers.js";
 import {
-  deployDilithiumEthVerifier,
-  registerPublicKey as registerMldsaEthKey,
-} from "../fixtures/mldsa-eth.js";
-import {
-  deployDilithiumVerifier,
-  registerPublicKey as registerMldsaKey,
-} from "../fixtures/mldsa.js";
-import {
-  keygen,
   signUserOp,
   type PackedUserOperation,
   type Scheme,
   type UnsignedUserOp,
 } from "../signers/index.js";
 
-const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
 const SCHEMES = [
   "ecdsa",
   "falcon",
   "mldsa",
   "mldsa-eth",
+  "falcon-eth",
 ] as const satisfies readonly Scheme[];
 
 // Fixed, scheme-agnostic gas envelope. Verification limit must be large
@@ -149,8 +139,11 @@ type EntryPointContract = Awaited<
 >;
 
 /**
- * Deploy and initialize the per-scheme account, returning the proxy
- * address and the owner keypair used for signing.
+ * Thin wrapper around the per-scheme `SCHEME_DEPLOYERS` registry
+ * (Story 2-4 Task T6 / AC-9). The if-cascade previously inlined here
+ * was extracted to `test/signers/deployers.ts` so that `Record<Scheme,
+ * Deployer>` makes `tsc` fail the moment a new `Scheme` member is added
+ * without a matching registry entry (compile-time exhaustiveness).
  */
 async function deployAccount(
   scheme: Scheme,
@@ -161,93 +154,8 @@ async function deployAccount(
     >
   >,
   entryPointAddress: `0x${string}`,
-): Promise<{ proxyAddress: `0x${string}`; alice: ReturnType<typeof keygen> }> {
-  const alice = keygen(scheme);
-
-  if (scheme === "ecdsa") {
-    const ownerAddress = `0x${Buffer.from(alice.publicKey).toString("hex")}` as `0x${string}`;
-    const implementation = await viem.deployContract("EcdsaAccount", [
-      entryPointAddress,
-    ]);
-    const initData = encodeFunctionData({
-      abi: implementation.abi,
-      functionName: "initialize",
-      args: [ownerAddress],
-    });
-    const proxy = await viem.deployContract("ERC1967Proxy", [
-      implementation.address,
-      initData,
-    ]);
-    return { proxyAddress: proxy.address, alice };
-  }
-
-  if (scheme === "falcon") {
-    const { falconVerifier } = await deployFalconVerifier(viem);
-    const pointerHex = await registerFalconKey(
-      falconVerifier,
-      alice.publicKey,
-      publicClient,
-    );
-    const implementation = await viem.deployContract("FalconAccount", [
-      entryPointAddress,
-      falconVerifier.address,
-    ]);
-    const initData = encodeFunctionData({
-      abi: implementation.abi,
-      functionName: "initialize",
-      args: [ZERO_ADDRESS, pointerHex],
-    });
-    const proxy = await viem.deployContract("ERC1967Proxy", [
-      implementation.address,
-      initData,
-    ]);
-    return { proxyAddress: proxy.address, alice };
-  }
-
-  if (scheme === "mldsa") {
-    const { dilithiumVerifier } = await deployDilithiumVerifier(viem);
-    const pointerHex = await registerMldsaKey(
-      dilithiumVerifier,
-      alice.publicKey,
-    );
-    const implementation = await viem.deployContract("MlDsaAccount", [
-      entryPointAddress,
-      dilithiumVerifier.address,
-    ]);
-    const initData = encodeFunctionData({
-      abi: implementation.abi,
-      functionName: "initialize",
-      args: [ZERO_ADDRESS, pointerHex],
-    });
-    const proxy = await viem.deployContract("ERC1967Proxy", [
-      implementation.address,
-      initData,
-    ]);
-    return { proxyAddress: proxy.address, alice };
-  }
-
-  // mldsa-eth — Story 5 Task 6 branch. Same shape as mldsa but with the
-  // ETH-variant verifier (Keccak-PRG fork; keys + sigs not interchangeable
-  // with the NIST variant per DD-1).
-  const { dilithiumEthVerifier } = await deployDilithiumEthVerifier(viem);
-  const pointerHex = await registerMldsaEthKey(
-    dilithiumEthVerifier,
-    alice.publicKey,
-  );
-  const implementation = await viem.deployContract("MlDsaEthAccount", [
-    entryPointAddress,
-    dilithiumEthVerifier.address,
-  ]);
-  const initData = encodeFunctionData({
-    abi: implementation.abi,
-    functionName: "initialize",
-    args: [ZERO_ADDRESS, pointerHex],
-  });
-  const proxy = await viem.deployContract("ERC1967Proxy", [
-    implementation.address,
-    initData,
-  ]);
-  return { proxyAddress: proxy.address, alice };
+): Promise<{ proxyAddress: `0x${string}`; alice: ReturnType<typeof import("../signers/index.js").keygen> }> {
+  return SCHEME_DEPLOYERS[scheme]({ viem, publicClient, entryPointAddress });
 }
 
 /**
@@ -371,6 +279,19 @@ describe("Story 5-1 — Gas benchmark", () => {
     async () => {
       const startMs = performance.now();
 
+      // AC-9 (Story 2-4) — runtime defense-in-depth for the compile-time
+      // `Record<Scheme, Deployer>` exhaustiveness check. `tsc --noEmit`
+      // already fails if any `Scheme` union member lacks a registry entry,
+      // but this assertion also catches the separate failure mode of
+      // `SCHEMES` drifting out of sync with the `Scheme` union (easy
+      // mistake: adding a union case without appending to the SCHEMES
+      // array).
+      assert.equal(
+        Object.keys(SCHEME_DEPLOYERS).length,
+        SCHEMES.length,
+        `SCHEME_DEPLOYERS entries (${Object.keys(SCHEME_DEPLOYERS).length}) must match SCHEMES count (${SCHEMES.length})`,
+      );
+
       const connection = await hre.network.connect();
       const { viem } = connection;
       const publicClient = await viem.getPublicClient();
@@ -438,7 +359,13 @@ describe("Story 5-1 — Gas benchmark", () => {
       const falcon = byScheme.get("falcon");
       const mldsa = byScheme.get("mldsa");
       const mldsaEth = byScheme.get("mldsa-eth");
-      if (ecdsa && falcon && mldsa && mldsaEth) {
+      const falconEth = byScheme.get("falcon-eth");
+      if (ecdsa && falcon && mldsa && mldsaEth && falconEth) {
+        // Story 2-4 AC-7 (length ordering) —
+        // `ecdsa < falcon == falconEth < mldsa == mldsaEth`. Both pairs
+        // share the same on-chain signature length (Falcon: 1064 B; ML-DSA:
+        // 2420 B), so we assert ordering at the boundaries and pair
+        // equivalence inside.
         assert.ok(
           ecdsa.calldataGas < falcon.calldataGas,
           `calldataGas ordering broken: ecdsa(${ecdsa.calldataGas}) >= falcon(${falcon.calldataGas})`,
@@ -447,20 +374,43 @@ describe("Story 5-1 — Gas benchmark", () => {
           falcon.calldataGas < mldsa.calldataGas,
           `calldataGas ordering broken: falcon(${falcon.calldataGas}) >= mldsa(${mldsa.calldataGas})`,
         );
-        // mldsa + mldsa-eth share the same 2420 B signature layout per
-        // DD-8 LOCKED (cTilde(32) || z(2304) || h(84)); calldata gas
-        // depends on non-zero byte distribution inside the signature,
-        // which varies per sign call. Assert same order of magnitude
-        // rather than strict equality: both PQC mldsa variants produce
-        // calldata gas within 5% of each other.
-        const calldataDelta =
+        assert.ok(
+          falconEth.calldataGas < mldsa.calldataGas,
+          `calldataGas ordering broken: falcon-eth(${falconEth.calldataGas}) >= mldsa(${mldsa.calldataGas})`,
+        );
+
+        // Within-pair: mldsa + mldsa-eth share the same 2420 B signature
+        // layout per DD-8 LOCKED (cTilde(32) || z(2304) || h(84)); calldata
+        // gas depends on non-zero byte distribution inside the signature.
+        // 5% bound — both PQC mldsa variants produce near-identical cost.
+        const mldsaCalldataDelta =
           mldsa.calldataGas > mldsaEth.calldataGas
             ? mldsa.calldataGas - mldsaEth.calldataGas
             : mldsaEth.calldataGas - mldsa.calldataGas;
-        const calldataRefBp = (calldataDelta * 10000n) / mldsa.calldataGas;
+        const mldsaCalldataRefBp =
+          (mldsaCalldataDelta * 10000n) / mldsa.calldataGas;
         assert.ok(
-          calldataRefBp < 500n,
-          `mldsa vs mldsa-eth calldata divergence exceeds 5%: mldsa=${mldsa.calldataGas} mldsa-eth=${mldsaEth.calldataGas} (delta=${calldataDelta}, ${calldataRefBp}bp) — same 2420 B layout per DD-8 should produce near-identical byte-distribution costs`,
+          mldsaCalldataRefBp < 500n,
+          `mldsa vs mldsa-eth calldata divergence exceeds 5%: mldsa=${mldsa.calldataGas} mldsa-eth=${mldsaEth.calldataGas} (delta=${mldsaCalldataDelta}, ${mldsaCalldataRefBp}bp) — same 2420 B layout per DD-8 should produce near-identical byte-distribution costs`,
+        );
+
+        // Story 2-4 AC-7 within-pair (falcon) — falcon + falcon-eth share
+        // the same 1064 B salt(40) || s2(1024) framing length, but differ
+        // structurally: falcon-NIST uses Algorithm-17 compressed codes
+        // (variable-length header-based); falcon-ETH uses NTT-compact 32 ×
+        // 32-B big-endian words with random-looking byte distribution. The
+        // NON-ZERO BYTE DISTRIBUTION drives EIP-2028 gas. 25% bound is the
+        // empirical headroom for this structural distribution difference
+        // (NOT a length difference — both signatures are exactly 1064 B).
+        const falconCalldataDelta =
+          falcon.calldataGas > falconEth.calldataGas
+            ? falcon.calldataGas - falconEth.calldataGas
+            : falconEth.calldataGas - falcon.calldataGas;
+        const falconCalldataRefBp =
+          (falconCalldataDelta * 10000n) / falcon.calldataGas;
+        assert.ok(
+          falconCalldataRefBp < 2500n,
+          `falcon vs falcon-eth calldata divergence exceeds 25%: falcon=${falcon.calldataGas} falcon-eth=${falconEth.calldataGas} (delta=${falconCalldataDelta}, ${falconCalldataRefBp}bp) — 1064 B layout differs in byte distribution (Algo-17 compressed vs NTT-compact) but should stay within 25% headroom`,
         );
       }
 
@@ -537,6 +487,7 @@ describe("Story 5-1 — Gas benchmark", () => {
         falcon: {},
         mldsa: {},
         "mldsa-eth": {},
+        "falcon-eth": {},
       };
 
       const results: BenchResult[] = [];
@@ -561,6 +512,7 @@ describe("Story 5-1 — Gas benchmark", () => {
       const falconResult = byScheme.get("falcon")!;
       const mldsaResult = byScheme.get("mldsa")!;
       const mldsaEthResult = byScheme.get("mldsa-eth")!;
+      const falconEthResult = byScheme.get("falcon-eth")!;
 
       for (const r of results) {
         console.log(
@@ -573,6 +525,7 @@ describe("Story 5-1 — Gas benchmark", () => {
       assert.equal(falconResult.status, "ok");
       assert.equal(mldsaResult.status, "ok");
       assert.equal(mldsaEthResult.status, "ok");
+      assert.equal(falconEthResult.status, "ok");
 
       if (falconResult.status === "ok") {
         assert.equal(falconResult.runs.length, 3);
@@ -582,6 +535,9 @@ describe("Story 5-1 — Gas benchmark", () => {
       }
       if (mldsaEthResult.status === "ok") {
         assert.equal(mldsaEthResult.runs.length, 3);
+      }
+      if (falconEthResult.status === "ok") {
+        assert.equal(falconEthResult.runs.length, 3);
       }
     },
   );

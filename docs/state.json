@@ -3,7 +3,7 @@
   "flow": "greenfield",
   "version": "next-2.0",
   "created": "2026-04-18T18:46:16.472Z",
-  "lastUpdated": "2026-04-20T17:44:46.354Z",
+  "lastUpdated": "2026-04-20T17:55:00.000Z",
   "currentPhase": "implement",
   "currentStep": null,
   "currentCheckpoint": null,
@@ -50,11 +50,17 @@
         "name": "G6 failure paths + shared SignatureMalformed walker extraction (AC-4/AC-5a/AC-5b/AC-6)",
         "status": "done",
         "committed": true
+      },
+      {
+        "id": "T6",
+        "name": "5-scheme bench + SCHEME_DEPLOYERS registry + pairwise delta report + AC-10 naming grep (AC-7/8/9/10/13)",
+        "status": "done",
+        "committed": true
       }
     ],
     "taskSummary": {
-      "compactedAt": "2026-04-20T17:10:00.000Z",
-      "tasksCompleted": 3,
+      "compactedAt": "2026-04-20T17:55:00.000Z",
+      "tasksCompleted": 6,
       "filesModified": [
         "docs/amendments.md",
         "docs/architecture.md",
@@ -62,26 +68,48 @@
         "docs/stories/2-4.md",
         "docs/sprint-status.yaml",
         "docs/state.json",
+        "docs/gas-report.md",
+        "contracts/FalconEthAccount.sol",
         "test/signers/falcon-eth.core.ts",
         "test/signers/falcon-eth.pk-transform.kat.test.ts",
-        "contracts/FalconEthAccount.sol",
-        "test/fixtures/falcon-eth.ts"
+        "test/signers/index.ts",
+        "test/signers/deployers.ts",
+        "test/signers/naming.test.ts",
+        "test/fixtures/falcon-eth.ts",
+        "test/accounts/falcon-eth.test.ts",
+        "test/accounts/falcon-eth-failures.test.ts",
+        "test/accounts/mldsa-eth-failures.test.ts",
+        "test/utils/signature-malformed-walker.ts",
+        "test/bench/gas-benchmark.test.ts",
+        "test/bench/gas-data.json",
+        "test/scripts/generate-report.test.ts",
+        "scripts/generate-report.ts"
       ],
-      "testsAdded": 102,
+      "testsAdded": 107,
       "patternsEstablished": [
         "A-007 structural-reconciliation oracle for G5 pk-transform: fixture encodes as uint256[32] (1024 B, Python ref sig_sol.py:48), preparePublicKeyForDeployment emits uint256[] (1088 B, on-chain setKey input). Test decodes both sides with decodeAbiParameters and compares element-wise bigint equality. Precedent: test/signers/mldsa-encoding.pk-transform.kat.test.ts:146-204.",
-        "preparePublicKeyForDeployment signature is single-factory for falcon-eth (keccakXofFactory only, accepted for NFR-11 symmetry but unused internally because falcon's forward-NTT is deterministic over raw pk). Distinct from ml-dsa-eth's two-factory binding (keccakXofFactory, keccakXofFactory). pkToNttCompact delegates to encodePublicKeyForZKNOX then decodes the uint256[] wrapper to recover the bigint[] shape.",
-        "FalconEthAccount.sol: 127 LOC structural mirror of MlDsaEthAccount.sol; wrapper-path import `./imports/FalconRef.sol` (NOT direct ETHFALCON/src/); _VERIFY_SELECTOR = bytes4(keccak256('verify(bytes,bytes32,bytes)')) — ADL-ambiguity-safe; try/catch → SignatureMalformed() on verifier revert; SIG_VALIDATION_FAILED on crypto failure. Dual-path walker (T5) will bind to the errorName on accountAddress.",
-        "FalconRef.sol SHA (9043bb6...9c) byte-preserved across T1/T2/T3 (AC-11 + AC-14 regression guards). No submodule-immutability violation.",
-        "test/fixtures/falcon-eth.ts: 98 LOC mirror of test/fixtures/mldsa-eth.ts; two-step simulate+write for setKey (viem typed-contract pattern); 20-byte SSTORE2 pointer-length check; cross-fixture network-sharing pattern (optional viem parameter to avoid HH3 EdrProvider isolation). registerPublicKey IS the T4/T5 entry point.",
-        "Shared test helpers come from test/utils/assert-bytes.ts; module-scope divergence-message helpers (no inline redefinition per retrospect/typescript.md §'Duplicated test-file code')."
+        "preparePublicKeyForDeployment signature is single-factory for falcon-eth (keccakXofFactory only, accepted for NFR-11 symmetry but unused internally because falcon's forward-NTT is deterministic over raw pk). Distinct from ml-dsa-eth's two-factory binding. pkToNttCompact delegates to encodePublicKeyForZKNOX then decodes the uint256[] wrapper to recover the bigint[] shape.",
+        "FalconEthAccount.sol: 127 LOC structural mirror of MlDsaEthAccount.sol; wrapper-path import `./imports/FalconRef.sol` (NOT direct ETHFALCON/src/); _VERIFY_SELECTOR = bytes4(keccak256('verify(bytes,bytes32,bytes)')) — ADL-ambiguity-safe; try/catch → SignatureMalformed() on verifier revert; SIG_VALIDATION_FAILED on crypto failure.",
+        "FalconRef.sol SHA (9043bb6...9c) byte-preserved across all T1-T6 (AC-11 + AC-14 regression guards). No submodule-immutability violation.",
+        "test/fixtures/falcon-eth.ts: 98 LOC mirror of test/fixtures/mldsa-eth.ts; two-step simulate+write for setKey; 20-byte SSTORE2 pointer-length check; cross-fixture network-sharing pattern (optional viem parameter).",
+        "T4 G6 happy path: 100 KAT vectors via signWithKatBytes + EntryPoint-impersonated simulateValidateUserOp + publicClient.estimateContractGas for AC-3 gas cap (16_777_216 HH3 tx_gas_limit_cap). Gas margin min=1,566,310 max=1,569,467 avg=1,567,713 — 10.7x headroom, <0.2% spread (ZKNOX verify is gas-constant). TDD smoke N=1 GREEN before N=100 expand.",
+        "T4 AC-FLOW-1: 5 fresh-keypair iterations via production keygen + signUserOp — proves production surfaces compose end-to-end, not just KAT paths.",
+        "T5 dual-path SignatureMalformed walker EXTRACTED to test/utils/signature-malformed-walker.ts (63 LOC) at 2-copy threshold per retrospect/typescript.md §'Duplicated test-file code'. assertSignatureMalformedForAccount(address) closure binds to address.toLowerCase() and dual-paths (canonical ContractFunctionRevertedError.errorName + HH3 EDR message-regex fallback). SignatureMalformed selector 0x2c3c2fe1 collides across 4 account contracts — address bind is the discriminator.",
+        "T5 TDD RED→GREEN on AC-6 address-bind proof: wrong 0xffff address binds to false; correct account.address binds to true. Load-bearing. Clever detour: initial 0x0000 attempt accidentally PASSED because 100-zero-byte malformed signature hex trivially contains zero-address as substring — switched to 0xff for clean RED signal.",
+        "T6 SCHEMES extended 4→5 ('falcon-eth' added); SCHEME_DEPLOYERS: Record<Scheme, Deployer> in test/signers/deployers.ts (175 LOC) extracts the deployAccount if-cascade. TS exhaustiveness check + runtime Object.keys().length === SCHEMES.length guard. Bench harness shrank ~100 LOC (if-cascade collapsed to registry lookup).",
+        "T6 gas pairing: falcon-eth verify is 1,536,489 gas — -68.9% vs mldsa-eth (4,946,763), ~3.2x cheaper than any other PQC path. Keccak-256 HashToPoint (A-006 Strategy E fork injection) pays off massively on-chain. Within-pair AC-7 bounds: mldsa-deltas 0.06% (vs 5% cap), falcon-deltas 2.19% (vs 25% cap). Falcon and falcon-eth share 1064 B calldata; mldsa and mldsa-eth share 2420 B.",
+        "T6 AC-13 deterministic bench: sha256sum docs/gas-report.md byte-stable across repeated `npm run report` invocations (no wall-clock leaks in renderer). Snapshot timestamp sourced from test/bench/gas-data.json, not Date.now().",
+        "T6 AC-10 naming discipline: test/signers/naming.test.ts walks src/test/contracts/scripts for lowercase `falcon_eth`; 0 hits. SCREAMING_SNAKE constants (FALCON_ETH_SIGNATURE_LENGTH, FALCON_ETH_FILE, FALCON_ETH_KAT_FILE) follow Story 2-3 convention — AC-10 targets lowercase only.",
+        "Shared test helpers consolidated under test/utils/: assert-bytes.ts (Story 2-2+) and signature-malformed-walker.ts (T5). Module-scope divergence-message helpers per retrospect/typescript.md §'Duplicated test-file code'."
       ],
       "deviations": [
-        "Rule 3 (T1): A-007 amendment — AC-1 oracle shape changed from raw Hex byte-equality to structural coefficient-equality. Architecture anticipated the divergence-probe fallback at docs/architecture.md:199 ('pick structural-decode oracle up front'). T1 code preserved as-is; test rewritten to structural decode; AC text + must_have truth amended inline; sweep grep clean post-commit."
+        "Rule 3 (T1): A-007 amendment — AC-1 oracle shape changed from raw Hex byte-equality to structural coefficient-equality. Architecture anticipated the divergence-probe fallback at docs/architecture.md:199 ('pick structural-decode oracle up front'). T1 code preserved as-is; test rewritten to structural decode; AC text + must_have truth amended inline; sweep grep clean post-commit.",
+        "Rule 1 (T6): test/scripts/generate-report.test.ts fixture extended 4→5 entries — forced correctness edit after SCHEMES grew; renderReport count-validation requires 5 schemes for 5-scheme snapshot. Auto-fixed inline; not in T6's original file manifest but a necessary ripple."
       ],
       "verificationOnlyTasks": [],
       "openIssues": [
-        "Pre-existing inaccuracy (out of 2-4 scope): docs/stories/1-1.md:342 describes fixture reshapedPublicKey as 'abi-encoded uint256[]' — actual layout is uint256[32] per scripts/generate-kat-fixtures.ts:1304 + A-007. Flagged in A-007; retrospective amendment of signed-off Story 1-1 is out of scope."
+        "Pre-existing inaccuracy (out of 2-4 scope): docs/stories/1-1.md:342 describes fixture reshapedPublicKey as 'abi-encoded uint256[]' — actual layout is uint256[32] per scripts/generate-kat-fixtures.ts:1304 + A-007. Flagged in A-007; retrospective amendment of signed-off Story 1-1 is out of scope.",
+        "Pre-existing tsc --noEmit errors at test/signers/keccak-prg.ts:140,177 (ml-dsa-eth era, commit 9b7481a). Not part of hardhat test flow; no baseline failing-test-count impact. Not introduced by any 2-4 task; deferred to a future hardening pass."
       ]
     }
   },
@@ -272,14 +300,14 @@
       }
     },
     "tasks": {
-      "totalCompleted": 21,
+      "totalCompleted": 22,
       "totalCompletedNoCommit": 0,
       "totalSkipped": 0,
       "totalRevisions": 1,
-      "totalVerificationCycles": 22,
-      "firstPassSuccess": 19,
+      "totalVerificationCycles": 23,
+      "firstPassSuccess": 20,
       "tddCount": 7,
-      "tddTotal": 14,
+      "tddTotal": 15,
       "avgVerificationCycles": 0
     },
     "codeReview": {
@@ -356,11 +384,11 @@
       }
     },
     "git": {
-      "totalCommits": 16,
-      "totalFilesChanged": 77,
-      "totalInsertions": 11574,
-      "totalDeletions": 518,
-      "testsAdded": 228
+      "totalCommits": 17,
+      "totalFilesChanged": 87,
+      "totalInsertions": 12120,
+      "totalDeletions": 675,
+      "testsAdded": 229
     }
   },
   "baselineTests": {

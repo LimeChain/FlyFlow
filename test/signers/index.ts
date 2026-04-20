@@ -9,10 +9,16 @@
 
 import * as ecdsa from "./ecdsa.js";
 import * as falcon from "./falcon.js";
+import * as falconEth from "./falcon-eth.js";
 import * as mldsa from "./ml-dsa.js";
 import * as mldsaEth from "./ml-dsa-eth.js";
 
-export type Scheme = "ecdsa" | "falcon" | "mldsa" | "mldsa-eth";
+export type Scheme =
+  | "ecdsa"
+  | "falcon"
+  | "mldsa"
+  | "mldsa-eth"
+  | "falcon-eth";
 
 export type Keypair = {
   publicKey: Uint8Array;
@@ -53,6 +59,8 @@ export function keygen(scheme: Scheme): Keypair {
       return mldsa.keygen();
     case "mldsa-eth":
       return mldsaEth.keygen();
+    case "falcon-eth":
+      return falconEth.keygen();
   }
 }
 
@@ -72,6 +80,13 @@ export async function signUserOp(
       return mldsa.signUserOp(secretKey, userOp, entryPointAddress, chainId);
     case "mldsa-eth":
       return mldsaEth.signUserOp(
+        secretKey,
+        userOp,
+        entryPointAddress,
+        chainId,
+      );
+    case "falcon-eth":
+      return falconEth.signUserOp(
         secretKey,
         userOp,
         entryPointAddress,

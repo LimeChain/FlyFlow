@@ -1,61 +1,75 @@
 {
-  "generatedAt": "2026-04-18T17:36:44.080Z",
+  "generatedAt": "2026-04-20T20:16:43.864Z",
   "results": [
     {
       "scheme": "ecdsa",
       "status": "ok",
       "runs": [
-        "76110",
         "76098",
-        "76098"
+        "76110",
+        "76110"
       ],
-      "mean": "76102",
-      "variance": 0.00015768310951091955,
-      "totalGas": "76110",
-      "calldataGas": "1040",
+      "mean": "76106",
+      "variance": 0.00015767482195884686,
+      "totalGas": "76098",
+      "calldataGas": "1028",
       "executionGas": "75070"
     },
     {
       "scheme": "falcon",
       "status": "ok",
       "runs": [
-        "4090133",
-        "4090330",
-        "3835194"
+        "4090491",
+        "3835612",
+        "3836155"
       ],
-      "mean": "4005219",
-      "variance": 0.063700886268641,
-      "totalGas": "4090133",
-      "calldataGas": "14396",
-      "executionGas": "4075737"
+      "mean": "3920752",
+      "variance": 0.06500768219974128,
+      "totalGas": "4090491",
+      "calldataGas": "14264",
+      "executionGas": "4076227"
     },
     {
       "scheme": "mldsa",
       "status": "ok",
       "runs": [
-        "8438754",
-        "8375783",
-        "8438075"
+        "8378277",
+        "8434073",
+        "8374118"
       ],
-      "mean": "8417537",
-      "variance": 0.007480929397756137,
-      "totalGas": "8438754",
-      "calldataGas": "38408",
-      "executionGas": "8400346"
+      "mean": "8395489",
+      "variance": 0.0071413350669627465,
+      "totalGas": "8378277",
+      "calldataGas": "38456",
+      "executionGas": "8339821"
     },
     {
       "scheme": "mldsa-eth",
       "status": "ok",
       "runs": [
-        "4944863",
-        "4943684",
-        "4949221"
+        "4946763",
+        "4952009",
+        "4947603"
       ],
-      "mean": "4945922",
-      "variance": 0.0011195081523728034,
-      "totalGas": "4944863",
-      "calldataGas": "38444",
-      "executionGas": "4906419"
+      "mean": "4948791",
+      "variance": 0.0010600568906627902,
+      "totalGas": "4946763",
+      "calldataGas": "38432",
+      "executionGas": "4908331"
+    },
+    {
+      "scheme": "falcon-eth",
+      "status": "ok",
+      "runs": [
+        "1536489",
+        "1536457",
+        "1537058"
+      ],
+      "mean": "1536668",
+      "variance": 0.00039110595131804657,
+      "totalGas": "1536489",
+      "calldataGas": "13952",
+      "executionGas": "1522537"
     }
   ]
 }
