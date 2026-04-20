@@ -47,12 +47,15 @@ epics:
         completedAt: "2026-04-20T09:00:00Z"
       - id: "2-3"
         slug: signer-port
-        title: "Falcon-ETH signer port + ffSampling → G4 PASS"
+        title: "Falcon-ETH signer wrapper via Strategy E fork-injection → G4 PASS"
         size: S
-        status: backlog
+        status: done
         wave: 4
         dependencies: ["2-1", "2-2"]
         amendments: ["A-006"]
+        resizedDuringImpl: "L→S per A-006 (Strategy E fork injection — 18 LOC on fork + ~300 LOC in our repo replaces 285-LOC source-transplant)"
+        gate5: pass
+        completedAt: "2026-04-20T15:45:00Z"
       - id: "2-4"
         slug: integration-benchmark-readme
         title: "Integration + 5-scheme benchmark + README attribution → G5 + G6 PASS"

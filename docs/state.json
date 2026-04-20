@@ -3,7 +3,7 @@
   "flow": "greenfield",
   "version": "next-2.0",
   "created": "2026-04-18T18:46:16.472Z",
-  "lastUpdated": "2026-04-20T13:35:00.000Z",
+  "lastUpdated": "2026-04-20T15:45:00.000Z",
   "currentPhase": "implement",
   "currentStep": null,
   "currentCheckpoint": null,
@@ -34,21 +34,85 @@
       "gateResult": "pass"
     }
   },
-  "storiesDone": 4,
+  "storiesDone": 5,
   "storiesTotal": 6,
   "changeStories": [],
-  "currentStory": {
+  "currentStory": null,
+  "lastCompletedStory": {
     "storyId": "2-3",
     "feature": "falcon-eth",
     "slug": "signer-port",
     "startedAt": "2026-04-20T13:05:00.000Z",
-    "amendments": ["A-005", "A-006"],
+    "amendments": [
+      "A-005",
+      "A-006"
+    ],
     "tasks": [
-      { "id": "T1", "name": "A-006 amendment + doc sweep", "status": "done", "committed": true },
-      { "id": "T2", "name": "Fork apply + repo wiring + falcon512paddedEth instantiation", "status": "pending", "committed": false },
-      { "id": "T3", "name": "Signer wrappers + unit tests", "status": "pending", "committed": false },
-      { "id": "T4", "name": "G4 KAT byte-identity test", "status": "pending", "committed": false }
-    ]
+      {
+        "id": "T1",
+        "name": "A-006 amendment + doc sweep",
+        "status": "done",
+        "committed": true
+      },
+      {
+        "id": "T2",
+        "name": "Fork apply + repo wiring + falcon512paddedEth instantiation",
+        "status": "done",
+        "committed": true
+      },
+      {
+        "id": "T3",
+        "name": "Signer wrappers + unit tests",
+        "status": "done",
+        "committed": true
+      },
+      {
+        "id": "T4",
+        "name": "G4 KAT byte-identity test",
+        "status": "done",
+        "committed": true
+      }
+    ],
+    "taskSummary": {
+      "compactedAt": "2026-04-20T14:50:00.000Z",
+      "tasksCompleted": 3,
+      "filesModified": [
+        "docs/amendments.md",
+        "docs/plan.md",
+        "docs/architecture.md",
+        "docs/sprint-status.yaml",
+        "docs/stories/2-3.md",
+        "package.json",
+        "package-lock.json",
+        "test/signers/falcon-eth.core.ts",
+        "test/signers/errors.ts",
+        "test/signers/falcon-eth.kat-internal.ts",
+        "test/signers/falcon-eth.ts",
+        "test/signers/falcon-eth.sign.test.ts"
+      ],
+      "testsAdded": 10,
+      "patternsEstablished": [
+        "Strategy E fork-injection: our repo instantiates `falcon512paddedEth = genFalcon({ ...falcon512paddedOpts, hashToPoint: hashToPointEVM })`; fork exports only `genFalcon` + `falcon512paddedOpts` (NOT base `falcon512opts`).",
+        "BytesReader interface in falcon-eth.kat-internal.ts abstracts signing randomness — KAT uses rngAesCtrDrbg256-driven reader, production uses crypto.getRandomValues-backed reader.",
+        "SIGNING_BYTES_EXHAUSTED guard pattern at randomness-source boundary — present in both `signWithKatBytes` (KAT) and `signUserOp` (production) callbacks; matches errors.ts JSDoc.",
+        "AC-7 boundary mirrors ml-dsa-eth: falcon-eth.ts (production) and falcon-eth.kat-internal.ts (KAT) do NOT import each other; both route through falcon-eth.core.js (falcon512paddedEth) + falcon-encoding.js (encodeSignatureForZKNOX).",
+        "Two-repo commit discipline: fork commits staged + committed locally, user pushes, our-repo commits land the pin. Branch pin (#falcon-eth-hashtopoint-injection) per user instruction; no merge to fork main; work-in-progress posture."
+      ],
+      "deviations": [
+        "Rule 1 (T2): renamed falcon512Eth → falcon512paddedEth mid-commit to match noble's falcon512padded naming convention (our variant extends padded, not unpadded). Sweep across 6 files in the T2 commit.",
+        "Rule 2 (T2 Step A): fork diff raw shortstat is 33+/27- = 60 LOC vs story's ≤25 bound; semantic is ~7 new LOC (the 27/27 is re-indentation of preserved 25-line SHAKE256 body). Accepted; logged for Gate 5.",
+        "Rule 1 (T2 Step A): falcon512paddedOpts got explicit ': FalconOpts' annotation due to fork's `isolatedDeclarations: true` tsconfig setting.",
+        "Rule 2 (T3): falcon-eth.ts#signUserOp does NOT import from kat-internal (AC-7 boundary). Prompt had it routing through signWithKatBytes; corrected to mirror ml-dsa-eth.ts pattern — production calls falcon512paddedEth.sign + encodeSignatureForZKNOX directly.",
+        "Rule 2 (T3): signWithKatBytes guard also checks returned-chunk length (not just requested length) so AC-5 SIGNING_BYTES_EXHAUSTED has a testable path via a buggy reader.",
+        "Rule 1 (T3 revise): signUserOp guard added to close the JSDoc-vs-behavior gap on errors.ts documentation; defense-in-depth."
+      ],
+      "verificationOnlyTasks": [],
+      "openIssues": [
+        "T2 Step A: fork raw diff 60 LOC exceeds story Gate-5 sanity check #3 (≤25). Semantic diff ~7 LOC; relies on `git diff -w` for audit. Flag at Gate 5.",
+        "T3: signUserOp SIGNING_BYTES_EXHAUSTED guard is present but structurally untestable on the happy path (fixed 88 B buffer + noble's 88 B consumption). Covered defensively; no independent unit test.",
+        "Fork branch `falcon-eth-hashtopoint-injection` is pinned (not merged to main); work-in-progress posture per user instruction. ml-dsa-eth migration to the same fork deferred to a separate ops task."
+      ]
+    }
   },
   "executionStrategy": {
     "waveA": "SINGLE-SUBAGENT",
@@ -81,7 +145,7 @@
   },
   "metrics": {
     "gates": {
-      "passes": 4,
+      "passes": 5,
       "fails": 0,
       "overrides": 0,
       "backNavigations": 0,
@@ -117,36 +181,36 @@
       }
     },
     "stories": {
-      "completed": 4,
+      "completed": 5,
       "skipped": 0,
       "changeStoriesCreated": 0,
-      "gate5Passes": 4,
+      "gate5Passes": 5,
       "gate5Fails": 0,
       "gate5Overrides": 0,
       "avgTasksPerStory": 0,
       "sizeDistribution": {
-        "S": 3,
+        "S": 4,
         "M": 1,
         "L": 0
       }
     },
     "tasks": {
-      "totalCompleted": 12,
+      "totalCompleted": 16,
       "totalCompletedNoCommit": 0,
       "totalSkipped": 0,
-      "totalRevisions": 0,
-      "totalVerificationCycles": 12,
-      "firstPassSuccess": 12,
-      "tddCount": 3,
-      "tddTotal": 5,
+      "totalRevisions": 1,
+      "totalVerificationCycles": 16,
+      "firstPassSuccess": 15,
+      "tddCount": 4,
+      "tddTotal": 9,
       "avgVerificationCycles": 0
     },
     "codeReview": {
-      "reviewsRun": 3,
-      "totalFindings": 10,
+      "reviewsRun": 4,
+      "totalFindings": 12,
       "criticalFindings": 0,
-      "highFindings": 1,
-      "mediumFindings": 1,
+      "highFindings": 2,
+      "mediumFindings": 2,
       "lowFindings": 8,
       "findingsDeferred": 2
     },
@@ -223,13 +287,13 @@
     }
   },
   "baselineTests": {
-    "total": 239,
-    "passing": 239,
+    "total": 350,
+    "passing": 350,
     "failing": 0,
     "baselinedAt": "2026-04-19T18:05:00.000Z",
     "baselinedAtStory": 0,
-    "lastRefreshedAt": "2026-04-20T12:30:00.000Z",
-    "lastRefreshedAtStory": 4,
+    "lastRefreshedAt": "2026-04-20T15:45:00.000Z",
+    "lastRefreshedAtStory": 5,
     "failingTests": [],
     "securitySensitive": []
   },
@@ -242,5 +306,12 @@
     "pass1": "pending",
     "pass2": "pending",
     "pass2Partial": false
+  },
+  "recovery": {
+    "interrupted": true,
+    "interruptedAt": "2026-04-20T14:48:30.358Z",
+    "errorType": "unknown",
+    "errorMessage": "",
+    "uncommittedChanges": true
   }
 }
