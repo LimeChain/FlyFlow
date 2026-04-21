@@ -60,7 +60,9 @@ epics:
         slug: integration-benchmark-readme
         title: "Integration + 5-scheme benchmark + README attribution → G5 + G6 PASS"
         size: L
-        status: in-progress
+        status: done
         wave: 5
         dependencies: ["2-3"]
         amendments: ["A-007"]
+        gate5: pass
+        completedAt: "2026-04-21T08:00:00Z"

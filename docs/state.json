@@ -3,23 +3,52 @@
   "flow": "greenfield",
   "version": "next-2.0",
   "created": "2026-04-18T18:46:16.472Z",
-  "lastUpdated": "2026-04-20T18:10:00.000Z",
+  "lastUpdated": "2026-04-21T08:05:00.000Z",
   "currentPhase": "implement",
   "currentStep": null,
   "currentCheckpoint": null,
-  "currentStory": {
+  "currentStory": null,
+  "complexityTier": "medium",
+  "phases": {
+    "research": {
+      "status": "complete",
+      "startedAt": "2026-04-18T18:46:16.472Z",
+      "completedAt": "2026-04-18T19:07:00.000Z",
+      "gateResult": "pass"
+    },
+    "specify": {
+      "status": "complete",
+      "startedAt": "2026-04-18T19:07:00.000Z",
+      "completedAt": "2026-04-18T19:47:00.000Z",
+      "gateResult": "pass"
+    },
+    "architecture": {
+      "status": "complete",
+      "startedAt": "2026-04-18T19:47:00.000Z",
+      "completedAt": "2026-04-19T17:00:00.000Z",
+      "gateResult": "pass"
+    },
+    "plan": {
+      "status": "complete",
+      "startedAt": "2026-04-19T17:00:00.000Z",
+      "completedAt": "2026-04-19T17:45:00.000Z",
+      "gateResult": "pass"
+    }
+  },
+  "storiesDone": 6,
+  "storiesTotal": 6,
+  "changeStories": [],
+  "lastCompletedStory": {
     "storyId": "2-4",
     "feature": "falcon-eth",
     "slug": "integration-benchmark-readme",
     "startedAt": "2026-04-20T16:02:00.000Z",
+    "completedAt": "2026-04-21T08:00:00.000Z",
     "wave": 5,
     "size": "L",
-    "dependencies": [
-      "2-3"
-    ],
-    "amendments": [
-      "A-007"
-    ],
+    "dependencies": ["2-3"],
+    "amendments": ["A-007"],
+    "gate5": "pass",
     "tasks": [
       {
         "id": "T1",
@@ -65,8 +94,8 @@
       }
     ],
     "taskSummary": {
-      "compactedAt": "2026-04-20T17:55:00.000Z",
-      "tasksCompleted": 6,
+      "compactedAt": "2026-04-21T08:05:00.000Z",
+      "tasksCompleted": 7,
       "filesModified": [
         "docs/amendments.md",
         "docs/architecture.md",
@@ -75,6 +104,7 @@
         "docs/sprint-status.yaml",
         "docs/state.json",
         "docs/gas-report.md",
+        "README.md",
         "contracts/FalconEthAccount.sol",
         "test/signers/falcon-eth.core.ts",
         "test/signers/falcon-eth.pk-transform.kat.test.ts",
@@ -89,14 +119,15 @@
         "test/bench/gas-benchmark.test.ts",
         "test/bench/gas-data.json",
         "test/scripts/generate-report.test.ts",
+        "test/docs/readme-runbook.test.ts",
         "scripts/generate-report.ts"
       ],
-      "testsAdded": 107,
+      "testsAdded": 111,
       "patternsEstablished": [
         "A-007 structural-reconciliation oracle for G5 pk-transform: fixture encodes as uint256[32] (1024 B, Python ref sig_sol.py:48), preparePublicKeyForDeployment emits uint256[] (1088 B, on-chain setKey input). Test decodes both sides with decodeAbiParameters and compares element-wise bigint equality. Precedent: test/signers/mldsa-encoding.pk-transform.kat.test.ts:146-204.",
         "preparePublicKeyForDeployment signature is single-factory for falcon-eth (keccakXofFactory only, accepted for NFR-11 symmetry but unused internally because falcon's forward-NTT is deterministic over raw pk). Distinct from ml-dsa-eth's two-factory binding. pkToNttCompact delegates to encodePublicKeyForZKNOX then decodes the uint256[] wrapper to recover the bigint[] shape.",
         "FalconEthAccount.sol: 127 LOC structural mirror of MlDsaEthAccount.sol; wrapper-path import `./imports/FalconRef.sol` (NOT direct ETHFALCON/src/); _VERIFY_SELECTOR = bytes4(keccak256('verify(bytes,bytes32,bytes)')) — ADL-ambiguity-safe; try/catch → SignatureMalformed() on verifier revert; SIG_VALIDATION_FAILED on crypto failure.",
-        "FalconRef.sol SHA (9043bb6...9c) byte-preserved across all T1-T6 (AC-11 + AC-14 regression guards). No submodule-immutability violation.",
+        "FalconRef.sol SHA (9043bb6...9c) byte-preserved across all T1-T7 (AC-11 + AC-14 regression guards). No submodule-immutability violation.",
         "test/fixtures/falcon-eth.ts: 98 LOC mirror of test/fixtures/mldsa-eth.ts; two-step simulate+write for setKey; 20-byte SSTORE2 pointer-length check; cross-fixture network-sharing pattern (optional viem parameter).",
         "T4 G6 happy path: 100 KAT vectors via signWithKatBytes + EntryPoint-impersonated simulateValidateUserOp + publicClient.estimateContractGas for AC-3 gas cap (16_777_216 HH3 tx_gas_limit_cap). Gas margin min=1,566,310 max=1,569,467 avg=1,567,713 — 10.7x headroom, <0.2% spread (ZKNOX verify is gas-constant). TDD smoke N=1 GREEN before N=100 expand.",
         "T4 AC-FLOW-1: 5 fresh-keypair iterations via production keygen + signUserOp — proves production surfaces compose end-to-end, not just KAT paths.",
@@ -106,6 +137,7 @@
         "T6 gas pairing: falcon-eth verify is 1,536,489 gas — -68.9% vs mldsa-eth (4,946,763), ~3.2x cheaper than any other PQC path. Keccak-256 HashToPoint (A-006 Strategy E fork injection) pays off massively on-chain. Within-pair AC-7 bounds: mldsa-deltas 0.06% (vs 5% cap), falcon-deltas 2.19% (vs 25% cap). Falcon and falcon-eth share 1064 B calldata; mldsa and mldsa-eth share 2420 B.",
         "T6 AC-13 deterministic bench: sha256sum docs/gas-report.md byte-stable across repeated `npm run report` invocations (no wall-clock leaks in renderer). Snapshot timestamp sourced from test/bench/gas-data.json, not Date.now().",
         "T6 AC-10 naming discipline: test/signers/naming.test.ts walks src/test/contracts/scripts for lowercase `falcon_eth`; 0 hits. SCREAMING_SNAKE constants (FALCON_ETH_SIGNATURE_LENGTH, FALCON_ETH_FILE, FALCON_ETH_KAT_FILE) follow Story 2-3 convention — AC-10 targets lowercase only.",
+        "T7 NFR-5 gas-cap runbook in README with 5-scheme gas table and @custom:experimental pre-audit posture. Runbook test (test/docs/readme-runbook.test.ts) guards against drift.",
         "Shared test helpers consolidated under test/utils/: assert-bytes.ts (Story 2-2+) and signature-malformed-walker.ts (T5). Module-scope divergence-message helpers per retrospect/typescript.md §'Duplicated test-file code'."
       ],
       "deviations": [
@@ -115,113 +147,8 @@
       "verificationOnlyTasks": [],
       "openIssues": [
         "Pre-existing inaccuracy (out of 2-4 scope): docs/stories/1-1.md:342 describes fixture reshapedPublicKey as 'abi-encoded uint256[]' — actual layout is uint256[32] per scripts/generate-kat-fixtures.ts:1304 + A-007. Flagged in A-007; retrospective amendment of signed-off Story 1-1 is out of scope.",
-        "Pre-existing tsc --noEmit errors at test/signers/keccak-prg.ts:140,177 (ml-dsa-eth era, commit 9b7481a). Not part of hardhat test flow; no baseline failing-test-count impact. Not introduced by any 2-4 task; deferred to a future hardening pass."
-      ]
-    }
-  },
-  "complexityTier": "medium",
-  "phases": {
-    "research": {
-      "status": "complete",
-      "startedAt": "2026-04-18T18:46:16.472Z",
-      "completedAt": "2026-04-18T19:07:00.000Z",
-      "gateResult": "pass"
-    },
-    "specify": {
-      "status": "complete",
-      "startedAt": "2026-04-18T19:07:00.000Z",
-      "completedAt": "2026-04-18T19:47:00.000Z",
-      "gateResult": "pass"
-    },
-    "architecture": {
-      "status": "complete",
-      "startedAt": "2026-04-18T19:47:00.000Z",
-      "completedAt": "2026-04-19T17:00:00.000Z",
-      "gateResult": "pass"
-    },
-    "plan": {
-      "status": "complete",
-      "startedAt": "2026-04-19T17:00:00.000Z",
-      "completedAt": "2026-04-19T17:45:00.000Z",
-      "gateResult": "pass"
-    }
-  },
-  "storiesDone": 5,
-  "storiesTotal": 6,
-  "changeStories": [],
-  "lastCompletedStory": {
-    "storyId": "2-3",
-    "feature": "falcon-eth",
-    "slug": "signer-port",
-    "startedAt": "2026-04-20T13:05:00.000Z",
-    "amendments": [
-      "A-005",
-      "A-006"
-    ],
-    "tasks": [
-      {
-        "id": "T1",
-        "name": "A-006 amendment + doc sweep",
-        "status": "done",
-        "committed": true
-      },
-      {
-        "id": "T2",
-        "name": "Fork apply + repo wiring + falcon512paddedEth instantiation",
-        "status": "done",
-        "committed": true
-      },
-      {
-        "id": "T3",
-        "name": "Signer wrappers + unit tests",
-        "status": "done",
-        "committed": true
-      },
-      {
-        "id": "T4",
-        "name": "G4 KAT byte-identity test",
-        "status": "done",
-        "committed": true
-      }
-    ],
-    "taskSummary": {
-      "compactedAt": "2026-04-20T14:50:00.000Z",
-      "tasksCompleted": 3,
-      "filesModified": [
-        "docs/amendments.md",
-        "docs/plan.md",
-        "docs/architecture.md",
-        "docs/sprint-status.yaml",
-        "docs/stories/2-3.md",
-        "package.json",
-        "package-lock.json",
-        "test/signers/falcon-eth.core.ts",
-        "test/signers/errors.ts",
-        "test/signers/falcon-eth.kat-internal.ts",
-        "test/signers/falcon-eth.ts",
-        "test/signers/falcon-eth.sign.test.ts"
-      ],
-      "testsAdded": 10,
-      "patternsEstablished": [
-        "Strategy E fork-injection: our repo instantiates `falcon512paddedEth = genFalcon({ ...falcon512paddedOpts, hashToPoint: hashToPointEVM })`; fork exports only `genFalcon` + `falcon512paddedOpts` (NOT base `falcon512opts`).",
-        "BytesReader interface in falcon-eth.kat-internal.ts abstracts signing randomness — KAT uses rngAesCtrDrbg256-driven reader, production uses crypto.getRandomValues-backed reader.",
-        "SIGNING_BYTES_EXHAUSTED guard pattern at randomness-source boundary — present in both `signWithKatBytes` (KAT) and `signUserOp` (production) callbacks; matches errors.ts JSDoc.",
-        "AC-7 boundary mirrors ml-dsa-eth: falcon-eth.ts (production) and falcon-eth.kat-internal.ts (KAT) do NOT import each other; both route through falcon-eth.core.js (falcon512paddedEth) + falcon-encoding.js (encodeSignatureForZKNOX).",
-        "Two-repo commit discipline: fork commits staged + committed locally, user pushes, our-repo commits land the pin. Branch pin (#falcon-eth-hashtopoint-injection) per user instruction; no merge to fork main; work-in-progress posture."
-      ],
-      "deviations": [
-        "Rule 1 (T2): renamed falcon512Eth → falcon512paddedEth mid-commit to match noble's falcon512padded naming convention (our variant extends padded, not unpadded). Sweep across 6 files in the T2 commit.",
-        "Rule 2 (T2 Step A): fork diff raw shortstat is 33+/27- = 60 LOC vs story's ≤25 bound; semantic is ~7 new LOC (the 27/27 is re-indentation of preserved 25-line SHAKE256 body). Accepted; logged for Gate 5.",
-        "Rule 1 (T2 Step A): falcon512paddedOpts got explicit ': FalconOpts' annotation due to fork's `isolatedDeclarations: true` tsconfig setting.",
-        "Rule 2 (T3): falcon-eth.ts#signUserOp does NOT import from kat-internal (AC-7 boundary). Prompt had it routing through signWithKatBytes; corrected to mirror ml-dsa-eth.ts pattern — production calls falcon512paddedEth.sign + encodeSignatureForZKNOX directly.",
-        "Rule 2 (T3): signWithKatBytes guard also checks returned-chunk length (not just requested length) so AC-5 SIGNING_BYTES_EXHAUSTED has a testable path via a buggy reader.",
-        "Rule 1 (T3 revise): signUserOp guard added to close the JSDoc-vs-behavior gap on errors.ts documentation; defense-in-depth."
-      ],
-      "verificationOnlyTasks": [],
-      "openIssues": [
-        "T2 Step A: fork raw diff 60 LOC exceeds story Gate-5 sanity check #3 (≤25). Semantic diff ~7 LOC; relies on `git diff -w` for audit. Flag at Gate 5.",
-        "T3: signUserOp SIGNING_BYTES_EXHAUSTED guard is present but structurally untestable on the happy path (fixed 88 B buffer + noble's 88 B consumption). Covered defensively; no independent unit test.",
-        "Fork branch `falcon-eth-hashtopoint-injection` is pinned (not merged to main); work-in-progress posture per user instruction. ml-dsa-eth migration to the same fork deferred to a separate ops task."
+        "Pre-existing tsc --noEmit errors at test/signers/keccak-prg.ts:140,177 (ml-dsa-eth era, commit 9b7481a). Not part of hardhat test flow; no baseline failing-test-count impact. Not introduced by any 2-4 task; deferred to a future hardening pass.",
+        "Pre-existing npm audit: 15 advisories (8 low, 5 moderate, 2 high) in @actions/http-client → undici dev-chain. package-lock.json byte-identical to pre-falcon-eth-2-4 — Story 2-4 introduced zero new vulnerabilities. Deferred to a separate dependency-update task."
       ]
     }
   },
@@ -256,7 +183,7 @@
   },
   "metrics": {
     "gates": {
-      "passes": 5,
+      "passes": 6,
       "fails": 0,
       "overrides": 0,
       "backNavigations": 0,
@@ -292,10 +219,10 @@
       }
     },
     "stories": {
-      "completed": 5,
+      "completed": 6,
       "skipped": 0,
       "changeStoriesCreated": 0,
-      "gate5Passes": 5,
+      "gate5Passes": 6,
       "gate5Fails": 0,
       "gate5Overrides": 0,
       "avgTasksPerStory": 0,
@@ -317,7 +244,7 @@
       "avgVerificationCycles": 0
     },
     "codeReview": {
-      "reviewsRun": 4,
+      "reviewsRun": 5,
       "totalFindings": 12,
       "criticalFindings": 0,
       "highFindings": 2,
@@ -398,35 +325,26 @@
     }
   },
   "baselineTests": {
-    "total": 350,
-    "passing": 350,
+    "total": 463,
+    "passing": 463,
     "failing": 0,
     "baselinedAt": "2026-04-19T18:05:00.000Z",
     "baselinedAtStory": 0,
-    "lastRefreshedAt": "2026-04-20T15:45:00.000Z",
-    "lastRefreshedAtStory": 5,
+    "lastRefreshedAt": "2026-04-21T08:05:00.000Z",
+    "lastRefreshedAtStory": 6,
     "failingTests": [],
     "securitySensitive": []
   },
   "waveStrategy": {
     "1": "sequential",
     "2": "sequential",
-    "3": "sequential"
+    "3": "sequential",
+    "4": "sequential",
+    "5": "sequential"
   },
   "devops": {
     "pass1": "pending",
     "pass2": "pending",
     "pass2Partial": false
-  },
-  "compacted": {
-    "at": "2026-04-20T15:41:53.709Z",
-    "trigger": "unknown"
-  },
-  "recovery": {
-    "interrupted": true,
-    "interruptedAt": "2026-04-20T17:44:46.354Z",
-    "errorType": "unknown",
-    "errorMessage": "",
-    "uncommittedChanges": true
   }
 }
