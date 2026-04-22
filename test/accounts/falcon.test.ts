@@ -5,10 +5,11 @@
  * `hre.network.connect()` + deploy EntryPoint + verifier + ERC1967Proxy +
  * impersonate EntryPoint + simulate validateUserOp). Falcon-specific
  * differences: raw 897-byte NIST public key is decoded, NTT-transformed,
- * and compacted into a 32-word uint256[] by `encodePublicKeyForZKNOX`
- * before `setKey` writes it via SSTORE2; noble's detached signature is
- * reshaped to the 1064-byte `salt(40) || s2_compact(1024)` form by
- * `encodeSignatureForZKNOX` inside `signUserOp("falcon", ...)`.
+ * and compacted into a 32-word uint256[] by `encodeFalconPublicKey`
+ * (from `@noble/post-quantum/utils-eth.js`) before `setKey` writes it via
+ * SSTORE2; noble's detached signature is reshaped to the 1064-byte
+ * `salt(40) || s2_compact(1024)` form by `encodeFalconSignature`
+ * inside `signUserOp("falcon", ...)`.
  *
  * Failure-class cases (wrong-key, bit-flipped, malformed) are Story 3-2.
  *

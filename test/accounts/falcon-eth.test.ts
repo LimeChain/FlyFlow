@@ -1,53 +1,41 @@
 /**
- * Story 2-4 Task T4 — G6 happy path + AC-FLOW-1 end-to-end test.
+ * Falcon-ETH G6 happy path + AC-FLOW-1 end-to-end test.
  *
  * Two it blocks:
  *
- *   1. AC-3 (G6 happy path) — iterate N .rsp vectors, for each:
+ *   1. G6 happy path — iterate N .rsp vectors. For each:
  *      register the raw public key via the fixture, deploy a fresh proxy,
  *      reconstruct the vector's deterministic randomness by seeding
  *      `rngAesCtrDrbg256(hexToBytes(v.drbgSeed))` and advancing past the
- *      48 B keygen draw (per docs/amendments.md §A-005 "DRBG derivation
- *      contract"; mirrors the Story 2-3 T4 G4 KAT test pattern), sign the
- *      userOp with `signWithKatBytes`, submit through EntryPoint's
- *      `validateUserOp` simulator, assert SIG_VALIDATION_SUCCESS (0n), then
- *      estimate the validateUserOp gas from an impersonated EntryPoint and
- *      assert it is under the HH3 EDR `tx_gas_limit_cap` of 2^24 =
- *      16_777_216n (AC-3 — NFR-5 verifyGas cap).
+ *      48 B keygen draw (mirrors the G4 KAT pattern at
+ *      `test/signers/falcon-eth.sign.kat.test.ts`), sign the userOpHash
+ *      inline via `falcon512paddedEth.sign` + `encodeFalconSignature`
+ *      (both from the fork at `@noble/post-quantum/{falcon,utils-eth}.js`),
+ *      submit through EntryPoint's `validateUserOp` simulator, assert
+ *      SIG_VALIDATION_SUCCESS (0n), then estimate the validateUserOp gas
+ *      from an impersonated EntryPoint and assert it is under the HH3 EDR
+ *      `tx_gas_limit_cap` of 2^24 = 16_777_216n (NFR-5 verifyGas cap).
  *
  *   2. AC-FLOW-1 — 5 iterations of a full fresh-keypair end-to-end:
  *      `keygen()` from falcon-eth.ts (production surface, hedged 48 B
- *      CSPRNG innerSeed) → `registerPublicKey` (goes through
+ *      CSPRNG innerSeed) → `registerPublicKey` (routes through
  *      `preparePublicKeyForDeployment` + `keccakXofFactory`) → fresh proxy
- *      → `signUserOp` (production path, hedged 88 B RNG via
+ *      → `signUserOp` (production path, hedged per-call randomness via
  *      `globalThis.crypto.getRandomValues`) → `validateUserOp` simulate →
  *      assert success. Proves the production `signUserOp` path composes
- *      with the on-chain verifier end-to-end, not just the KAT signer.
+ *      with the on-chain verifier end-to-end.
  *
- * Vector count (AC-3) — N constant:
- * ----------------------------------
- * Smoke-first per the ml-dsa-eth Story 5 precedent + Story 2-4 T4 spec:
- * initial landing at N = 5 to validate the scaffolding end-to-end and
- * measure runtime; expand to 100 at Gate 5 if the full corpus fits inside
- * the budget (Falcon on-chain verify is slower than ml-dsa-eth's due to
- * larger calldata, so the timeout is bumped from 5min to 10min as a
- * safety margin). `AC_3_VECTOR_COUNT` remains a top-of-file constant for
- * easy future tuning.
+ * Vector count: 100 .rsp vectors per KAT corpus; timeout 10 min.
  *
- * Failure-class tests (AC-4 wrong-key, AC-5 bit-flip, AC-6 malformed)
- * live in the sibling `falcon-eth-failures.test.ts` (Task 5).
+ * Failure-class tests (wrong-key, bit-flip, malformed) live in the sibling
+ * `falcon-eth-failures.test.ts`.
  *
- * Import boundary (per Story 2-3 AC-7 Dev Notes §"test/accounts/** is NOT
- * in the AC-7 grep scope"; established by ml-dsa-eth precedent):
- *   - `signWithKatBytes` from `../signers/falcon-eth.kat-internal.js` is
- *     PERMITTED here (AC-7 enforcement is file-path-scoped to
- *     `test/signers/index.ts` + `test/bench/**` and does not cover
- *     `test/accounts/**`).
- *   - `keygen` + `signUserOp` imported DIRECTLY from
- *     `../signers/falcon-eth.js` rather than through the dispatcher in
- *     `../signers/index.js` — Task T6 extends that dispatcher's `Scheme`
- *     union to include `"falcon-eth"`, but this test file lands before
- *     T6 commits so we sidestep the ordering.
+ * Post-fork-extraction: the KAT signing path no longer uses a repo-side
+ * `signWithKatBytes` wrapper — the test inlines
+ * `encodeFalconSignature(falcon512paddedEth.sign(msg, sk, { random }))`
+ * directly (both symbols live in the fork). Production `keygen` +
+ * `signUserOp` remain imported from `../signers/falcon-eth.js` (repo
+ * thin shim retained for ERC-4337 glue).
  *
  * Framework: node:test + node:assert/strict.
  */
@@ -56,6 +44,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { rngAesCtrDrbg256 } from "@noble/ciphers/aes.js";
+import { falcon512paddedEth } from "@noble/post-quantum/falcon.js";
+import { encodeFalconSignature } from "@noble/post-quantum/utils-eth.js";
 import hre from "hardhat";
 import {
   type Hex,
@@ -71,14 +61,20 @@ import {
 } from "../fixtures/falcon-eth.js";
 import { loadKatVectors } from "../fixtures/kat/index.js";
 import { keygen, signUserOp } from "../signers/falcon-eth.js";
-import {
-  type BytesReader,
-  signWithKatBytes,
-} from "../signers/falcon-eth.kat-internal.js";
 import type {
   PackedUserOperation,
   UnsignedUserOp,
 } from "../signers/index.js";
+
+// Noble's `Falcon` type alias declares `sign` via the generic `Signer` shape
+// (`SigOpts` — no `random`). At runtime, `genFalcon` wires the
+// Falcon-specific `FalconSigOpts` which accepts a `random` callback. The
+// local cast names the wider contract without reaching into fork internals.
+const signWithRandom = falcon512paddedEth.sign as (
+  msg: Uint8Array,
+  secretKey: Uint8Array,
+  opts: { random: (n?: number) => Uint8Array },
+) => Uint8Array;
 
 const SIG_VALIDATION_SUCCESS = 0n;
 const ZERO_BYTES32 = `0x${"0".repeat(64)}` as Hex;
@@ -184,11 +180,11 @@ async function simulateValidateUserOp(
   return result as bigint;
 }
 
-describe("G6 — FalconEthAccount happy path (AC-3)", () => {
+describe("G6 — FalconEthAccount happy path", () => {
   const vectors = loadKatVectors("falcon-eth").slice(0, AC_3_VECTOR_COUNT);
 
   it(
-    `${vectors.length} .rsp vectors → SIG_VALIDATION_SUCCESS via signWithKatBytes + EntryPoint.validateUserOp (verifyGas < 16_777_216n)`,
+    `${vectors.length} .rsp vectors → SIG_VALIDATION_SUCCESS via falcon512paddedEth.sign + EntryPoint.validateUserOp (verifyGas < 16_777_216n)`,
     { timeout: 10 * 60_000 },
     async () => {
       const stack = await deployStack();
@@ -215,27 +211,21 @@ describe("G6 — FalconEthAccount happy path (AC-3)", () => {
 
         // 3. Reconstruct the vector's deterministic randomness — seed the
         //    AES-CTR-DRBG with `v.drbgSeed` and advance past the 48 B
-        //    keygen draw before wiring the reader (per A-005 DRBG
-        //    derivation contract; mirrors the Story 2-3 T4 G4 KAT pattern
-        //    at test/signers/falcon-eth.sign.kat.test.ts:130-135). The
-        //    remaining stream feeds noble's 40 B salt + 48 B FFSampler
-        //    seed (88 B total budget).
+        //    keygen draw. The remaining stream feeds noble's 40 B salt +
+        //    48 B FFSampler seed (88 B total).
         const drbg = rngAesCtrDrbg256(hexToBytes(v.drbgSeed));
         drbg.randomBytes(48);
-        const reader: BytesReader = {
-          read: (n: number): Uint8Array => drbg.randomBytes(n),
-        };
 
-        // 4. Sign the userOpHash via the KAT surface. `signWithKatBytes`
+        // 4. Sign the userOpHash via the fork surface:
+        //    falcon512paddedEth.sign + encodeFalconSignature. The encoder
         //    returns the on-chain-ready 1064 B `salt(40) || s2_compact(1024)`
-        //    layout (ZKNOX-encoded internally — see
-        //    test/signers/falcon-eth.kat-internal.ts:114-177); hex-encode
-        //    for the signature field.
-        const rawSig = signWithKatBytes(
-          hexToBytes(v.secretKey),
+        //    layout; hex-encode for the signature field.
+        const nobleSig = signWithRandom(
           hexToBytes(userOpHash),
-          reader,
+          hexToBytes(v.secretKey),
+          { random: (n?: number): Uint8Array => drbg.randomBytes(n ?? 0) },
         );
+        const rawSig = encodeFalconSignature(nobleSig);
         const signatureHex = bytesToHex(rawSig);
         const signed: PackedUserOperation = {
           ...unsigned,
@@ -255,7 +245,7 @@ describe("G6 — FalconEthAccount happy path (AC-3)", () => {
           `vec ${v.id}: expected SIG_VALIDATION_SUCCESS (0), got ${validationData}`,
         );
 
-        // 6. AC-3 / NFR-5 gas-cap: estimate the validateUserOp call's gas
+        // 6. NFR-5 gas-cap: estimate the validateUserOp call's gas
         //    (from the impersonated EntryPoint — the production caller)
         //    and assert it stays under the HH3 EDR `tx_gas_limit_cap` of
         //    2^24 = 16_777_216. A verify that can't fit under this cap

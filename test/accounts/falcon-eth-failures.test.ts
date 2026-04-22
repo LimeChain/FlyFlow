@@ -64,12 +64,11 @@
  * shared dual-path viem walker for AC-6. No chai, no
  * hardhat-chai-matchers.
  *
- * Import boundary: same as Task 4 — `keygen` + `signUserOp` direct-imported
- * from `../signers/falcon-eth.js`, sidestepping the dispatcher extension
- * in Task 6. `signWithKatBytes` NOT imported here — the failure-class
- * tests use the production signer throughout (crypto-invalid and
- * malformed assertions don't require KAT determinism), matching the
- * ml-dsa-eth-failures precedent.
+ * Import boundary: `keygen` + `signUserOp` are imported directly from
+ * `../signers/falcon-eth.js` (post-fork-extraction: the repo-side thin
+ * shim over fork-owned primitives). Failure-class tests use the production
+ * signer throughout — crypto-invalid and malformed assertions don't
+ * require KAT determinism, matching the ml-dsa-eth-failures precedent.
  *
  * Framework: node:test + node:assert/strict (A-001).
  */
@@ -105,7 +104,8 @@ const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
  * Falcon-ETH on-chain signature layout — 1064 bytes:
  *   - `salt`          : offset [0, 40)
  *   - `s2_compact`    : offset [40, 1064) — 1024 bytes, 512 × 16-bit coeffs
- * See `test/signers/falcon-eth.kat-internal.ts` + ZKNOX wire format.
+ * See `@noble/post-quantum/utils-eth.js#encodeFalconSignature` + ZKNOX
+ * wire format.
  */
 const FALCON_ETH_SIGNATURE_LENGTH = 1064;
 

@@ -11,18 +11,19 @@ import {ZKNOX_ethfalcon} from "./imports/FalconRef.sol";
 /// @author pqc-4337-laim
 /// @notice ERC-4337 v0.7 account that delegates signature verification to a
 ///         ZKNoxHQ ETHFALCON ETH-variant verifier (`ZKNOX_ethfalcon`)
-///         — the Keccak-based HashToPoint fork of Falcon-512. Stores the
+///         — the Keccak-based HashToPoint variant of Falcon-512. Stores the
 ///         SSTORE2-pointer form of the reshaped public key; the raw 897-byte
 ///         Falcon-512 NIST-encoded key is supplied off-chain via the signer
 ///         module, reshaped by `preparePublicKeyForDeployment`
-///         (`test/signers/falcon-eth.core.ts`) which delegates to
-///         `encodePublicKeyForZKNOX` (raw → forward-NTT → compactPoly256 →
-///         `abi.encode(uint256[])`), and SSTORE2-written by
-///         `falconEthVerifier.setKey()` before initialization. Signature
-///         byte-compatibility with the NIST Falcon variant is preserved at the
-///         wire format (1,064-byte `salt || s2_compact` raw concat); only the
-///         XOF primitive driving hash-to-point differs between the two variants
-///         (SHAKE-256 vs Keccak-256).
+///         (`test/signers/falcon-eth.ts`) which delegates to the fork's
+///         `encodeFalconPublicKey` exported from the `utils-eth` subpath
+///         of the `noble/post-quantum` package (raw → forward-NTT →
+///         compactPoly256 → `abi.encode(uint256[])`), and SSTORE2-written
+///         by `falconEthVerifier.setKey()` before initialization. Signature byte-compatibility with the NIST Falcon
+///         variant is preserved at the wire format (1,064-byte
+///         `salt || s2_compact` raw concat); only the XOF primitive driving
+///         hash-to-point differs between the two variants (SHAKE-256 vs
+///         Keccak-256).
 /// @custom:experimental This library is not audited yet, do not use in production.
 contract FalconEthAccount is SimpleAccount {
     /// @notice Reverts when the verifier fails to decode the signature
