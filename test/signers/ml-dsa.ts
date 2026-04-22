@@ -9,7 +9,9 @@
  * Signature side needs no encoding bridge: noble's `ml_dsa44.sign` output
  * (cTilde(32) || z(2304) || h(84) = 2,420 bytes) matches byte-for-byte
  * what `ZKNOX_dilithium.sol:80` slices on the verifier side. Public-key
- * side DOES need a bridge — see `./mldsa-encoding.ts`.
+ * side DOES need a bridge — see `@noble/post-quantum/utils-eth.js#encodeMlDsaPublicKey`
+ * (shared with ML-DSA-ETH via the two-factory `(xofTr, xofExpandA)` signature;
+ * NIST callers pass `(shake256XofFactory, shake128XofFactory)`).
  *
  * Hash domain: noble's default `sign(msg, secretKey)` path prepends the
  * FIPS 204 §5.2 domain prefix `0x00 || ctxLen(0) || msg` before SHAKE256

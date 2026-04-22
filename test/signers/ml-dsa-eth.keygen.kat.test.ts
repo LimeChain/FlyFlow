@@ -1,26 +1,23 @@
 /**
- * Story 3 Task 4 — G1 KAT byte-identity test (AC-3-1).
+ * G1 KAT — ml-dsa-eth keygen byte-identity (AC-3-1).
  *
  * Iterates every vector in `test/fixtures/kat/mldsa-eth/vectors.json`
- * (Story 1 AC-1-1 — 100 records captured via Python
- * `_keygen_internal(zeta, _xof=Keccak256PRNG, _xof2=Keccak256PRNG)`)
- * and asserts that the TS fork's `keygenInternal(zeta)` produces
- * byte-identical `(publicKey, secretKey)` to the stored fields. This
- * is the G1 gate in the architecture's four-implementation oracle
- * chain (DD-11); without it, Story 4's signer work would build on
- * unverified keygen ground.
+ * (100 records captured via Python `_keygen_internal(zeta,
+ * _xof=Keccak256PRNG, _xof2=Keccak256PRNG)`) and asserts that the
+ * fork's `ml_dsa44eth.keygen(zeta)` produces byte-identical
+ * `(publicKey, secretKey)` to the stored fields. This is the G1 gate
+ * in the four-implementation oracle chain (DD-11); without it, the
+ * signer-side work would build on unverified keygen ground.
  *
- * Factory under test: `keccakXofFactory` (Story 2 `createKeccakPrg` +
- * `flip()` + streaming `extract(n)`), wired via
- * `ml-dsa-eth.kat-internal.ts → ml-dsa-eth.core.ts#keygenWithXof`.
+ * Post-fork-extraction routing: `ml_dsa44eth` in the fork internally
+ * drives every XOF call-site through `keccakXofFactory` (single-factory
+ * collapse per DD-1). The earlier repo-side `keygenInternal` wrapper
+ * at `ml-dsa-eth.kat-internal.ts` was removed; tests now call noble's
+ * `DSA.keygen` surface directly.
  *
  * Assertion uses `assertBytesEqual` from `test/utils/assert-bytes.ts`
  * with `xofId = "keccak-prg"` so any divergence surfaces
  * `(factory=keccak-prg)` — the AC-3-4 discriminant.
- *
- * Performance: noble's STATS at ml-dsa.js:388 report ~24 XOF calls per
- * DSA44 keygen; 100 iterations run in well under a minute on local
- * hardware and do not meaningfully slow `npm test`.
  */
 
 import { describe, it } from "node:test";

@@ -18,7 +18,7 @@
  *                             (Falcon-ETH's pk-transform is deterministic
  *                             over raw pk bytes); accepted only so the
  *                             5-scheme call-site grep stays uniform with
- *                             `mldsa-encoding.ts#preparePublicKeyForDeployment`.
+ *                             `ml-dsa-eth.ts#preparePublicKeyForDeployment`.
  *
  * All low-level crypto (HashToPoint primitive, ABI-level encoders, raw
  * signature layout) lives in the fork. The fork returns `Uint8Array`
@@ -111,7 +111,7 @@ export async function signUserOp(
  * `@noble/post-quantum/utils-eth.js#encodeFalconPublicKey`.
  *
  * Mirrors the 2-parameter signature of
- * `mldsa-encoding.ts#preparePublicKeyForDeployment` so the 5-scheme
+ * `ml-dsa-eth.ts#preparePublicKeyForDeployment` so the 5-scheme
  * call-site grep stays uniform across Falcon-NIST, Falcon-ETH, ML-DSA-NIST,
  * ML-DSA-ETH, and ECDSA. The `_xofFactory` parameter is unused —
  * Falcon-ETH's pk-transform is deterministic over the 897 B raw public key

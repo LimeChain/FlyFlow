@@ -66,10 +66,10 @@ const K = 4;
 const L = 4;
 const N = 256;
 
-// compactPoly256(coeffs, m=32) in mldsa-encoding.ts packs 8 × 32-bit
-// coefficients into each uint256 word: coefficient i lives at bits
-// [(i % 8) * 32 .. (i % 8) * 32 + 32) of packed word floor(i / 8). So
-// 256 coefficients become 32 packed uint256s.
+// compactPoly256 (fork-private inside @noble/post-quantum/utils-eth.js)
+// packs 8 × 32-bit coefficients into each uint256 word: coefficient i lives
+// at bits [(i % 8) * 32 .. (i % 8) * 32 + 32) of packed word floor(i / 8).
+// So 256 coefficients become 32 packed uint256s.
 const WORDS_PER_POLY = 32;
 const COEFFS_PER_WORD = 8;
 const U32_MASK = 0xffffffffn;

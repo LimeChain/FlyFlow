@@ -58,18 +58,15 @@ All four PQC accounts expose the same shape: immutable verifier reference, `byte
 | `ecdsa`      | `test/signers/ecdsa.ts`           | —                                                  | viem                                                                  |
 | `falcon`     | `test/signers/falcon.ts`          | —                                                  | `@noble/post-quantum/falcon.js#falcon512` (SHAKE-256 HashToPoint) + `@noble/post-quantum/utils-eth.js#encodeFalconSignature` (shared ZKNox wire-reshape with the ETH variant — see §Signer Fork Strategy) |
 | `mldsa`      | `test/signers/ml-dsa.ts`          | —                                                  | `@noble/post-quantum/ml-dsa.js#ml_dsa44`                              |
-| `mldsa-eth`  | `test/signers/ml-dsa-eth.ts`      | `test/signers/ml-dsa-eth.kat-internal.ts`          | `ml-dsa-eth.core.ts` + `mldsa-encoding.ts` + `keccak-prg.ts`          |
+| `mldsa-eth`  | `test/signers/ml-dsa-eth.ts`      | — (KAT tests call noble primitives directly post-fork-extraction) | Fork-owned: `@noble/post-quantum/ml-dsa.js#ml_dsa44eth` + `@noble/post-quantum/utils-eth.js` (createKeccakPrg, keccakXofFactory, shake128/256XofFactory, encodeMlDsaPublicKey) |
 | `falcon-eth` | `test/signers/falcon-eth.ts`      | — (KAT tests call noble primitives directly post-fork-extraction) | Fork-owned: `@noble/post-quantum/falcon.js#falcon512paddedEth` + `@noble/post-quantum/utils-eth.js` (hashToPointEVM, encodeFalconPublicKey, encodeFalconSignature) |
-
-**`*.kat-internal.ts` boundary (ML-DSA-ETH only).** The ML-DSA-ETH KAT helpers (`test/signers/ml-dsa-eth.kat-internal.ts`) accept explicit seeds/readers so fixture tests can replay exact byte sequences; `test/signers/index.ts` and `test/bench/**/*.ts` MUST NOT import them — enforced by a runtime grep test in `ml-dsa-eth.test.ts`. Falcon-ETH's previous `kat-internal` module (`keygenInternal`, `signWithKatBytes`, `BytesReader`) was removed during the fork extraction; its KAT tests now call noble primitives directly, so no boundary enforcement is needed on the Falcon-ETH side.
 
 **Shared primitives.**
 
-- `test/signers/keccak-prg.ts` — stateful Keccak-256 PRG (`inject` → `flip` → `extract`). Byte-compatible with ETHDILITHIUM's `Keccak256PRNG(a=None, b=None)` wrapper. Lifecycle guards throw `PrgLifecycleError` on inject-after-flip, extract-before-flip, double-flip, or buffer-overflow.
-- `test/signers/mldsa-encoding.ts` — ML-DSA-44 pk reshape (`preparePublicKeyForDeployment(rawPk, xofForTr, xofForExpandA)`) + `XofReader` / `XofFactory` interface + NIST adapters (`shake256XofFactory`, `shake128XofFactory`) + ETH adapter (`keccakXofFactory`).
+- **ML-DSA-ETH crypto surface — fork-owned.** Consumed from `@noble/post-quantum/ml-dsa.js` (`ml_dsa44eth` — the Keccak-PRG-driven Dilithium-2 instance, appended after `ml_dsa87` inside the fork's `src/ml-dsa.ts` via a `getMlDsaEth` factory) and `@noble/post-quantum/utils-eth.js` (public: `XofFactory`/`XofReader` types, `shake128XofFactory`, `shake256XofFactory`, `keccakXofFactory`, `createKeccakPrg`, `KeccakPrg`, `PrgLifecycleError`, `PrgLifecycleCode`, `encodeMlDsaPublicKey`). Private fork internals (ML-DSA-44 pk-decode, `recoverAhat`, `transformT1Poly`, `compactModule256`, nested `uint256[][]` / `uint256[][][]` ABI encoders) stay non-exported. Repo retains only the thin wrapper `test/signers/ml-dsa-eth.ts` (production `keygen` + `signUserOp` + NFR-11 `preparePublicKeyForDeployment` shape shim wrapping `encodeMlDsaPublicKey` with `bytesToHex`).
 - **Falcon-ETH crypto surface — fork-owned.** Consumed from `@noble/post-quantum/falcon.js` (`falcon512paddedEth` — the Keccak-HashToPoint Falcon-512 instance) and `@noble/post-quantum/utils-eth.js` (public: `hashToPointEVM`, `encodeFalconPublicKey`, `encodeFalconSignature`). Private fork internals (Falcon-512 14-bit pk decode, Algorithm-18 Golomb-Rice signature decompress, `compactPoly256`, `packBigEndianWords`, ABI envelope builder) stay non-exported. Repo retains only the thin wrapper `test/signers/falcon-eth.ts` (production `keygen` + `signUserOp` + NFR-11 `preparePublicKeyForDeployment` shape shim).
 - `test/signers/userOpHash.ts` — ERC-4337 v0.7 `PackedUserOperation` hash helper; shared across all PQC schemes.
-- `test/signers/errors.ts` — `SignerError` base + `SignerInputError` (ML-DSA codes only, post-Falcon-ETH extraction), `PrgLifecycleError`, `SignerInternalError`. Stable `readonly code` discriminants; tests assert on `.code`, never on message strings.
+- `test/signers/errors.ts` — `NotImplementedError` only. The historical `SignerInputError` (ML-DSA codes) and `PrgLifecycleError` / `SignerInternalError` classes were removed as each ETH scheme extracted to the fork; length/shape validation now flows through noble's native `abytes_` / `splitCoder.decode` (raising `TypeError` / `Error`) and PRG lifecycle errors originate from the fork's `@noble/post-quantum/utils-eth.js#PrgLifecycleError`.
 
 **Deployer registry.** `test/signers/deployers.ts` exports `SCHEME_DEPLOYERS: Record<Scheme, Deployer>`. Each deployer deploys an `ERC1967Proxy` over the scheme's implementation, wires its verifier (where applicable), and registers the public key via the corresponding `test/fixtures/*.ts` module. TypeScript's `Record<Scheme, Deployer>` enforces compile-time exhaustiveness; the bench harness adds `Object.keys(SCHEME_DEPLOYERS).length === SCHEMES.length` as a defense-in-depth runtime guard.
 
@@ -234,9 +231,9 @@ Each ETH variant is covered by an ordered byte-identity chain. A red gate locali
 
 1. **G0 — Keccak-PRG byte-identity.** Layer 1 canonical + Layer 2 boundary vectors.
 2. **G0′ — Solidity cross-check.** `KeccakPrngHarness` deployed in Hardhat; JS ≡ Solidity on Layer 2.
-3. **G1 — Keygen.** `keygenInternal(zeta)` over ~100 `.rsp` vectors, byte-identical pk + sk.
-4. **G2 — Signer.** `signWithRnd(sk, msg, rnd)` over ~100 vectors, byte-identical 2420 B signature.
-5. **G3 — pk-transform.** `preparePublicKeyForDeployment(pk, keccakXofFactory, keccakXofFactory)` byte-identical to fixture `reshapedPublicKey`.
+3. **G1 — Keygen.** `ml_dsa44eth.keygen(zeta)` over ~100 `.rsp` vectors, byte-identical pk + sk.
+4. **G2 — Signer.** `ml_dsa44eth.sign(msg, sk, { extraEntropy: rnd })` over ~100 vectors, byte-identical 2420 B signature.
+5. **G3 — pk-transform.** `encodeMlDsaPublicKey(pk, keccakXofFactory, keccakXofFactory)` coefficient-identical to fixture `reshapedPublicKey` (via structural ABI-decode — same oracle shape as Falcon-ETH's G5).
 6. **G4 — Verifier integration.** Deploy `ZKNOX_ethdilithium` + `MlDsaEthAccount`; submit `(pointer, msg, sig)` via `validateUserOp`; assert success + rejection classes.
 
 **Falcon-ETH (6 gates):**
@@ -250,11 +247,37 @@ Each ETH variant is covered by an ordered byte-identity chain. A red gate locali
 
 ## Signer Fork Strategy
 
-### ML-DSA-ETH — `XofFactory` parameterization
+### ML-DSA-ETH — fork-owned instance + encoders
 
-`ml-dsa-eth.core.ts` forks noble's `_keygen_internal` / `_sign_internal` to take two `XofFactory` parameters (`_xof`, `_xof2`). NIST callers pass `(shake256XofFactory, shake128XofFactory)`; ETH callers pass `(keccakXofFactory, keccakXofFactory)` — the DD-1 collapse of SHAKE-256/128 onto the single Keccak-PRG primitive. Every call-site constructs a fresh `XofReader` via `xofFactory(seed)`; no module-level mutable state (enforced by an `^(let|var) _?xof` grep in `test/signers/naming.test.ts`).
+The fork at `github.com/LimeChain/noble-post-quantum-eth` (branch `falcon-eth-complete`) OWNS the full ML-DSA-ETH crypto surface — `ml_dsa44eth` is exported from `@noble/post-quantum/ml-dsa.js` alongside the NIST variants `ml_dsa44` / `ml_dsa65` / `ml_dsa87`, and the scheme-agnostic ETH helpers (`XofFactory`/`XofReader` contracts, the three factory adapters, `createKeccakPrg`, `encodeMlDsaPublicKey`) are exported from `@noble/post-quantum/utils-eth.js`.
 
-`preparePublicKeyForDeployment(rawPk, xofTr, xofExpandA)` inside `mldsa-encoding.ts` uses its two factories for `tr = _xof(pk, 64)` and `A_hat = ExpandA(rho, _xof2)` respectively. `tr` is 64 B `bytes` (NOT `bytes32`) — the ZKNox Solidity struct is `PubKey { uint256[][][] aHat; bytes tr; uint256[][] t1; }`.
+Fork layout:
+
+- `src/ml-dsa.ts` — the ETH variant lives in a dedicated `// ===== ETH variant =====` section after the `ml_dsa87` IIFE, wrapped in a `getMlDsaEth` factory. Closure access to the module-scope arithmetic machinery (`polyAdd`, `MultiplyNTTs`, `RejNTTPoly`, `polyCoder`, `crystals`, `newPoly`, `N`, `Q`, `D`, plus upstream `splitCoder` / `vecCoder`) avoids duplication; only the ETH-variant samplers (`RejBoundedPolyEth`, `SampleInBallEth`) and the Keccak-PRG-keyed XOF adapter (`makeXofGet`) are closure-local. Structurally mirrors `src/falcon.ts`, which hosts both NIST and ETH Falcon variants in one file under the same convention.
+- `src/utils-eth.ts` — same leaf module as the Falcon-ETH strategy below; grew additively to host the XOF abstractions, Keccak-PRG primitive, and ML-DSA public-key encoder (`encodeMlDsaPublicKey(rawPk, xofTr, xofExpandA)`).
+
+**Why ML-DSA-ETH can't reuse noble's `XOF128`/`XOF256` seam.** Noble's `XOF(seed).get(x, y)` rebinds the sponge state by appending `(x, y)` to the seed input (SHAKE sponge construction, 168 B / 136 B block production). ETHDILITHIUM's Keccak-PRG is a categorically different primitive — a 32 B `keccak256(state)` counter-mode stream with flat-sequential `extract(n)` and no per-coordinate rebinding. Block boundaries, state evolution, and seeding convention all disagree. An adapter can bridge the interface signature but cannot produce byte-identical output against the `.rsp` corpus — the sampler loops themselves consume different bytes. This is why the ETH variant rebuilds coders, samplers, and keygen/sign/verify bodies inline rather than swapping a single XOF factory the way Falcon-ETH does at its external `hashToPoint` call-site.
+
+**Two-factory `encodeMlDsaPublicKey(rawPk, xofTr, xofExpandA)` contract.** Mirrors the Python reference `_keygen_internal(_xof=<hash>, _xof2=<shake>)` split: `xofTr` drives the `tr` H-of-pk computation (SHAKE-256 on the NIST path, Keccak-PRG on the ETH path); `xofExpandA` drives ExpandA / rejection sampling (SHAKE-128 on NIST, Keccak-PRG on ETH). ETH callers pass `(keccakXofFactory, keccakXofFactory)` — the DD-1 collapse of SHAKE-256/128 onto the single Keccak-PRG primitive. `tr` is 64 B `bytes` (NOT `bytes32`) — the ZKNox Solidity struct is `PubKey { uint256[][][] aHat; bytes tr; uint256[][] t1; }`.
+
+Repo-side consumption:
+
+```ts
+// test/signers/ml-dsa-eth.ts — thin ERC-4337 glue only
+import { ml_dsa44eth } from "@noble/post-quantum/ml-dsa.js";
+import {
+  encodeMlDsaPublicKey,
+  type XofFactory,
+} from "@noble/post-quantum/utils-eth.js";
+```
+
+`signUserOp` (production) wraps `ml_dsa44eth.sign(msg, sk)` — noble sources a fresh 32 B hedge via `randomBytes` per call (Web Crypto). `preparePublicKeyForDeployment(rawPk, xofTr, xofExpandA)` is an NFR-11 cross-scheme shape shim over `encodeMlDsaPublicKey` (wraps with `bytesToHex` at the viem boundary) — mirrors Falcon-ETH's one-parameter equivalent for 5-scheme call-site grep uniformity.
+
+KAT tests call noble primitives directly:
+
+- G1 keygen — `ml_dsa44eth.keygen(zeta)` (noble's `abytes` validates seed length; no repo-side wrapper needed).
+- G2 signer — `ml_dsa44eth.sign(msg, sk, { extraEntropy: rnd })` (deterministic per .rsp rnd).
+- G3 pk-transform — `encodeMlDsaPublicKey(rawPk, keccakXofFactory, keccakXofFactory)` for the ETH path; NIST regression uses `(shake256XofFactory, shake128XofFactory)`.
 
 ### Falcon-ETH — fork-owned instance + encoders
 
@@ -276,7 +299,7 @@ import {
 } from "@noble/post-quantum/utils-eth.js";
 ```
 
-`signUserOp` (production) wraps `falcon512paddedEth.sign(msg, sk, { random })` — randomness fetched on-demand via `globalThis.crypto.getRandomValues` — and re-encodes noble's 666 B detached signature (`header(1) ‖ salt(40) ‖ enc_s(625)`) via `encodeFalconSignature` into the 1064 B ZKNox layout. `preparePublicKeyForDeployment(rawPk, _xofFactory)` is an NFR-11 cross-scheme shape shim over `encodeFalconPublicKey` — the second parameter is unused (Falcon-ETH's pk-transform is deterministic over raw bytes) and exists only to keep the 5-scheme grep uniform with `mldsa-encoding.ts`.
+`signUserOp` (production) wraps `falcon512paddedEth.sign(msg, sk, { random })` — randomness fetched on-demand via `globalThis.crypto.getRandomValues` — and re-encodes noble's 666 B detached signature (`header(1) ‖ salt(40) ‖ enc_s(625)`) via `encodeFalconSignature` into the 1064 B ZKNox layout. `preparePublicKeyForDeployment(rawPk, _xofFactory)` is an NFR-11 cross-scheme shape shim over `encodeFalconPublicKey` — the second parameter is unused (Falcon-ETH's pk-transform is deterministic over raw bytes) and exists only to keep the 5-scheme call-site grep uniform with `ml-dsa-eth.ts`'s two-parameter equivalent.
 
 KAT tests call noble primitives directly:
 
@@ -286,21 +309,22 @@ KAT tests call noble primitives directly:
 
 **Dependency pin (`package.json`):** during iteration, `"@noble/post-quantum": "file:../noble-post-quantum-eth"` — local symlink to the fork checkout. Edits to `src/*.ts` in the fork require `npm run build` in the fork (or `tsc --watch` in a dedicated terminal) to regenerate the dist the consumer imports. npm does NOT hoist a `file:` pin's transitive deps, so the three fork runtime deps (`@noble/{ciphers,curves,hashes}@~2.2.0`) are also listed explicitly in this repo's `devDependencies` so test files can import them directly. Post-stabilization, the pin will flip back to `git+ssh://…#<sha>` (SHA, not branch) — a future hardening step once the fork goes read-only.
 
-**ml-dsa-eth migration to the fork's `utils-eth.ts` is tracked separately** — the falcon-eth extraction was the test run for Layout B. During the transition `compactPoly256` is duplicated (fork + `test/signers/mldsa-encoding.ts`); the duplication gets consolidated when ml-dsa-eth extracts.
+**`compactPoly256` consolidation — done.** During the Falcon-ETH transition the helper was deliberately duplicated between the fork's new `utils-eth.ts` and the repo's `test/signers/mldsa-encoding.ts`. The ml-dsa-eth extraction removed the repo copy; the fork's copy is now the sole source of truth for both schemes.
 
 ## Error Handling
 
 ### JS signer error taxonomy
 
-`test/signers/errors.ts` declares a `SignerError` base with a `readonly code` discriminant and three subclasses:
+`test/signers/errors.ts` declares only `NotImplementedError` post-ETH-extraction. The historical `SignerInputError` (ML-DSA input-validation codes) was collapsed when both ETH schemes moved to the fork — length/shape validation now flows through noble's native `abytes_` / `splitCoder.decode` (raising `TypeError` / `Error`), so the repo-side taxonomy is no longer load-bearing. Falcon-ETH-specific `INVALID_INNER_SEED_LENGTH` + `SIGNING_BYTES_EXHAUSTED` dropped at the Falcon-ETH extraction; ML-DSA-specific `INVALID_SECRET_KEY_LENGTH`, `INVALID_MESSAGE`, `INVALID_CTX_LENGTH`, `INVALID_RND_LENGTH` dropped at the ML-DSA-ETH extraction.
 
-| Class                | Example codes                                                                                                     |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `SignerInputError`   | `INVALID_SECRET_KEY_LENGTH`, `INVALID_PUBLIC_KEY_LENGTH`, `INVALID_MESSAGE`, `INVALID_CTX_LENGTH`, `INVALID_RND_LENGTH` (ML-DSA paths only; Falcon-ETH-specific `INVALID_INNER_SEED_LENGTH` + `SIGNING_BYTES_EXHAUSTED` were dropped when the Falcon-ETH surface moved to the fork — noble's `abytes` handles seed validation; Falcon's randomness request size is fixed by construction so no budget guard is needed) |
-| `KatFixtureError`    | `KAT_SCHEMA_MISMATCH`, `KAT_SUBMODULE_SHA_MISMATCH`, `KAT_UNKNOWN_SUBMODULE_SOURCE`, `KAT_FIXTURE_MISSING`, `KAT_GIT_PROBE_FAILED` |
-| `PrgLifecycleError`  | `PRG_INJECT_AFTER_FLIP`, `PRG_EXTRACT_BEFORE_FLIP`, `PRG_DOUBLE_FLIP`, `PRG_BUFFER_OVERFLOW`                       |
-| `FixtureGenError`    | `TEST_OVERRIDE_INVALID_FORMAT`, `TEST_OVERRIDE_SENTINEL_MISSING`                                                  |
-| `SignerInternalError`| `INTERNAL_SIGNER_ERROR` — escape hatch for unexpected XOF / NTT / encoding failures                               |
+Remaining structured-error surfaces (all defined in their consumer modules, not in `errors.ts`):
+
+| Class                | Origin                                                   | Example codes                                                                                                     |
+| -------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `NotImplementedError`| `test/signers/errors.ts`                                 | `NOT_IMPLEMENTED` — thrown by the NIST `falcon` / `mldsa` signer stubs.                                            |
+| `PrgLifecycleError`  | `@noble/post-quantum/utils-eth.js` (fork)                | `PRG_INJECT_AFTER_FLIP`, `PRG_EXTRACT_BEFORE_FLIP`, `PRG_DOUBLE_FLIP`, `PRG_BUFFER_OVERFLOW`                       |
+| `KatFixtureError`    | `test/fixtures/kat/index.ts`                             | `KAT_SCHEMA_MISMATCH`, `KAT_SUBMODULE_SHA_MISMATCH`, `KAT_UNKNOWN_SUBMODULE_SOURCE`, `KAT_FIXTURE_MISSING`, `KAT_GIT_PROBE_FAILED` |
+| `FixtureGenError`    | `scripts/generate-kat-fixtures.ts`                       | `TEST_OVERRIDE_INVALID_FORMAT`, `TEST_OVERRIDE_SENTINEL_MISSING`                                                  |
 
 Tests always assert on `.code`, never on message strings. The `code` contract is what downstream stories depend on; message text is free to change.
 
@@ -332,7 +356,7 @@ Tests always assert on `.code`, never on message strings. The `code` contract is
 
 **Tiered structure.**
 
-- **Unit** — `test/signers/*.test.ts` (signer internals, error-class discriminants, XOF isolation grep, `FALCON_DELTA_HEADINGS` / `@delta-from-ml-dsa` structural header checks, `KAT_INTERNAL_MODULES` boundary grep, snake-case `falcon_eth` naming grep).
+- **Unit** — `test/signers/*.test.ts` (signer internals, error-class discriminants, XOF isolation grep, snake-case `falcon_eth` naming grep). Post-extraction the legacy `FALCON_DELTA_HEADINGS` / `@delta-from-ml-dsa` structural header checks and `KAT_INTERNAL_MODULES` boundary grep are obsolete — both ETH schemes now live in the fork, and repo-side `kat-internal` modules no longer exist.
 - **KAT byte-identity** — `*.kat.test.ts` files, one per gate (G0/G0′/G1/G2/G3/G4 for ML-DSA-ETH; G1/G2/G3/G4/G5 for Falcon-ETH; G6 is the verifier-integration gate handled in `test/accounts/`).
 - **Account-level** — `test/accounts/<scheme>.test.ts` (happy path, valid + invalid signatures, AC-3 rejection classes) + `test/accounts/<scheme>-failures.test.ts` (malformed + wrong-key + bit-flip paths).
 - **Bench + report** — `test/bench/gas-benchmark.test.ts` + `test/scripts/generate-report.test.ts`.
@@ -340,7 +364,7 @@ Tests always assert on `.code`, never on message strings. The `code` contract is
 **Shared helpers.**
 
 - `test/utils/assert-bytes.ts` — `assertBytesEqual(actual, expected, label, xofId?)` prints the first-divergent byte with ±8 B context plus the XOF `id` discriminant (if supplied). Used across every KAT file.
-- `test/utils/fs-walk.ts` — `listTsFiles(dir)` walks `test/bench/` for grep-gate tests (ensures no bench file imports a `*.kat-internal` surface).
+- `test/utils/fs-walk.ts` — `listTsFiles(dir)` walks `test/bench/` for grep-gate tests. The `*.kat-internal` boundary check is no longer active (both ETH schemes moved to the fork, no repo-side `kat-internal` surface exists to guard); the helper is retained for reuse in future scheme-boundary or per-file structural greps.
 - `test/utils/signature-malformed-walker.ts` — dual-path `SignatureMalformed` error matcher resilient to HH3 EDR plaintext reverts.
 
 **Baselines.** Current full suite size is maintained as `baselineTests.passingTests` in `docs/state.json` during in-flight features. Between features, baselines are reset at Gate 5 closure. Historical flaky-test baselines (C-006 for ECDSA, C-012 for PQC variance) are documented above and guarded by the test predicates themselves, not via skip annotations — `.claude/rules/test-integrity.md` forbids `@Disabled` / `t.Skip` without a tracking reference.
@@ -352,7 +376,7 @@ Tests always assert on `.code`, never on message strings. The `code` contract is
 | Package                                         | Version pin                                                              | Purpose                                                                    |
 | ----------------------------------------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
 | `@account-abstraction/contracts`                | `^0.7.0`                                                                 | `SimpleAccount`, `IEntryPoint`, `PackedUserOperation`, `Helpers.sol` sentinels |
-| `@noble/post-quantum`                           | `file:../noble-post-quantum-eth` (local symlink during iteration; SHA-pinned post-stabilization) | Fork — owns the full Falcon-ETH crypto surface via `./utils-eth` subpath + `falcon512paddedEth` instance; consumed by all PQC signers |
+| `@noble/post-quantum`                           | `file:../noble-post-quantum-eth` (local symlink during iteration; SHA-pinned post-stabilization) | Fork — owns the full Falcon-ETH crypto surface (`falcon512paddedEth` + encoders + `hashToPointEVM`) AND the full ML-DSA-ETH crypto surface (`ml_dsa44eth` + XOF abstractions + Keccak-PRG primitive + `encodeMlDsaPublicKey`) via the `./utils-eth` subpath; consumed by all PQC signers |
 | `@noble/ciphers`                                | `~2.2.0`                                                                 | `rngAesCtrDrbg256`, `chacha20`. Explicit devDep because npm does not hoist transitive deps from `file:` pins |
 | `@noble/curves`                                 | `~2.2.0`                                                                 | secp256k1 for ECDSA + `abstract/modular.js#invert` for Falcon NTT bootstrap. Explicit devDep (same reason) |
 | `@noble/hashes`                                 | `~2.2.0`                                                                 | SHAKE-256/128, Keccak-256. Explicit devDep (same reason) |
@@ -383,10 +407,10 @@ Only decisions that are still binding in the current codebase are listed; histor
 | DD-7    | Per-account verifier instance (immutable reference in constructor); never shared across accounts.                           | Simplest model; gas benchmark incorporates a fresh deploy per scheme.                                      |
 | DD-8    | Custom error `SignatureMalformed()` for verifier-internal reverts; cryptographic failure uses `SIG_VALIDATION_FAILED`.      | ERC-4337 `validationData` low-20-byte authorizer field cannot encode a third class without breaking spec.  |
 | DD-9    | `SCHEMES` const + `Scheme` union + `Record<Scheme, Deployer>` registry for the bench harness.                               | TS exhaustiveness checks + runtime length-match guard catch scheme-drift at compile AND run time.          |
-| DD-10   | XOF injection for ML-DSA-ETH via `XofFactory` parameter at every call-site; no module-level mutable state.                  | Interleaved SHAKE / Keccak in the same process must not cross-contaminate. Enforced by `^(let\|var) _?xof` grep. |
+| DD-10   | ML-DSA-ETH crypto surface lives inline at the bottom of the fork's `src/ml-dsa.ts` (Layout D — fork-owned Keccak-PRG-driven Dilithium-2 instance). Repo retains only ERC-4337 glue + an NFR-11 `preparePublicKeyForDeployment` shape shim. Every XOF call-site inside the fork's ETH body constructs a fresh `XofReader` via `xofFactory(seed)`; no module-level mutable state. | Supersedes the earlier `XofFactory`-at-every-call-site design in the repo (ml-dsa-eth.core.ts). The fork is now a first-class ML-DSA-ETH provider, parallel to Falcon-ETH's DD-12. Interleaved SHAKE / Keccak in the same process still cannot cross-contaminate — the per-reader-per-seed contract is preserved inside the fork. See §"ML-DSA-ETH — fork-owned instance + encoders" for rationale including why ML-DSA-ETH couldn't reuse noble's per-coordinate-rebinding `XOF128`/`XOF256` seam. |
 | DD-11   | Fixture `reshapedPublicKey` sourced from Python ref; TS emits a structurally-equivalent but ABI-different wrapper for Falcon-ETH. | Fixture format matches Python's on-chain call shape (`uint256[32]`); TS emits the dynamic form the Solidity reader expects (`uint256[]`). G5 oracle uses structural coefficient-equality. |
 | DD-12   | Falcon-ETH crypto surface lives in the fork's `utils-eth.ts` (Layout B — fork-owned HashToPoint + encoders + finished `falcon512paddedEth` instance). Repo retains only ERC-4337 glue + an NFR-11 `preparePublicKeyForDeployment` shape shim. | Supersedes the earlier Strategy-E injection-seam design — the fork is now a first-class Falcon-ETH provider, not a pure upstream mirror. See §"Falcon-ETH — fork-owned instance + encoders" for rationale. |
-| DD-13   | Keccak-PRG promoted to first-class ported component with dedicated G0 KAT + G0′ Solidity cross-check.                       | A primitive-level bug at G0 would surface as a non-localised failure across G1–G4 otherwise.               |
+| DD-13   | Keccak-PRG promoted to first-class ported component with dedicated G0 KAT + G0′ Solidity cross-check. Lives at `@noble/post-quantum/utils-eth.js#createKeccakPrg` (+ `KeccakPrg` interface + `PrgLifecycleError` + `PrgLifecycleCode`) post-ML-DSA-ETH-extraction. | A primitive-level bug at G0 would surface as a non-localised failure across G1–G4 otherwise.               |
 | DD-14   | Fixture-gen CLI spawns Python via `execFileSync` argv form; overrides regex-validated + `ALLOW_TEST_OVERRIDES=1`-sentinel-gated. | Operationalises the "test-overrides need runtime gates" universal rule; no shell expansion.            |
 | DD-15   | Multi-submodule SHA-drift loader (`submoduleSource` discriminator on every fixture).                                        | Single-submodule loader would silently tautology-match once Falcon fixtures landed.                        |
 | DD-16   | Calldata-asymmetry gas bounds: `mldsa-pair` at 5%, `falcon-pair` at 25% (equal length).                                     | NTT-compact vs Algorithm-17-compress byte distributions differ even at equal signature length.             |

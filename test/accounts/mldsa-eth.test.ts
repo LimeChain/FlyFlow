@@ -155,7 +155,7 @@ describe("G4 — MlDsaEthAccount happy path (AC-5-3)", () => {
   const vectors = loadKatVectors("mldsa-eth").slice(0, AC_5_3_VECTOR_COUNT);
 
   it(
-    `${vectors.length} .rsp vectors → SIG_VALIDATION_SUCCESS via signWithRnd + EntryPoint.validateUserOp`,
+    `${vectors.length} .rsp vectors → SIG_VALIDATION_SUCCESS via ml_dsa44eth.sign + EntryPoint.validateUserOp`,
     { timeout: 5 * 60_000 },
     async () => {
       const stack = await deployStack();
