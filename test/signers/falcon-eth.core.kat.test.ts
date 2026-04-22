@@ -7,8 +7,8 @@
  * `.compute(salt, msg)` (Story 1-1 Task T2) at pinned ETHFALCON submodule
  * SHA `03ed0d60c67087527de7c4a3c1c469b89611bd68`.
  *
- * For each vector: invoke the TS port `hashToPointEVM(salt, msg)`
- * (`falcon-eth.core.ts`) and assert byte-identity against the pinned
+ * For each vector: invoke the TS port `hashToPointEVM(salt, msg)` from the
+ * fork's `utils-eth` subpath and assert byte-identity against the pinned
  * `ZKNOX_HashToPoint.sol:22` Solidity free function (DD-25 LOCKED Option C
  * — trust anchor is the pinned Solidity, NOT a Python spec doc).
  *

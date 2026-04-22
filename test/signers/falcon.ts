@@ -9,12 +9,13 @@
  * bridge to the on-chain dialect:
  *  - noble's public key is the 897-byte NIST form (header || 14-bit-packed
  *    coefficients); the verifier stores an SSTORE2 pointer (20 bytes) to an
- *    ABI-encoded NTT-domain compacted `uint256[32]`. See `falcon-encoding.ts`
- *    and A-003 for the rationale (account stores pointer, raw key off-chain).
+ *    ABI-encoded NTT-domain compacted `uint256[32]`. See
+ *    `encodeFalconPublicKey` in the `utils-eth` subpath of the fork (A-003
+ *    rationale: account stores pointer, raw key off-chain).
  *  - noble emits a Falcon detached signature (header || 40-byte nonce ||
  *    Algorithm-17 Golomb-Rice compressed s2); ZKNOX expects a flat
- *    `salt(40) || s2_compact(1024)` = 1064 bytes. `encodeSignatureForZKNOX`
- *    performs the reshape.
+ *    `salt(40) || s2_compact(1024)` = 1064 bytes. `encodeFalconSignature`
+ *    in the fork's `utils-eth` subpath performs the reshape.
  *
  * Hash domain: noble's `falcon512.sign` computes HashToPoint internally over
  * `nonce || msg` using SHAKE256; ZKNOX matches at `ZKNOX_falcon.sol:73`
@@ -23,9 +24,9 @@
  */
 
 import { falcon512 } from "@noble/post-quantum/falcon.js";
-import { hexToBytes } from "viem";
+import { encodeFalconSignature } from "@noble/post-quantum/utils-eth.js";
+import { bytesToHex, hexToBytes } from "viem";
 
-import { encodeSignatureForZKNOX } from "./falcon-encoding.js";
 import type { Keypair, PackedUserOperation, UnsignedUserOp } from "./index.js";
 import { computeUserOpHash } from "./userOpHash.js";
 
@@ -45,6 +46,6 @@ export async function signUserOp(
 
   return {
     ...userOp,
-    signature: encodeSignatureForZKNOX(nobleSig),
+    signature: bytesToHex(encodeFalconSignature(nobleSig)),
   };
 }
