@@ -1,53 +1,55 @@
 /**
- * Falcon-ETH production keygen + signer surfaces (Story 2-1 Task T2 + Story
- * 2-3 Task T3; `docs/amendments.md` §A-005 library-first + §A-006 Strategy E
- * fork injection).
+ * Falcon-ETH production keygen + signer surfaces.
  *
- * Exposes:
- *   - `keygen()` — sources a 48-byte `innerSeed` from
- *     `globalThis.crypto.getRandomValues` (Node ≥19 / browser Web Crypto)
- *     and forwards to `@noble/post-quantum/falcon.js#falcon512.keygen`.
- *   - `signUserOp(sk, userOp, entryPoint, chainId)` — computes `userOpHash`,
- *     sources a fresh 88 B hedge from `globalThis.crypto.getRandomValues`,
- *     routes through `falcon512paddedEth.sign` (HashToPoint-injected fork;
- *     see `falcon-eth.core.ts`), then re-encodes via
- *     `encodeSignatureForZKNOX` into the 1064 B `salt(40) || s2_compact(1024)`
- *     on-chain layout and packs into a `PackedUserOperation`.
+ * Thin ERC-4337 glue around the fork-owned crypto surface at
+ * `@noble/post-quantum/{falcon,utils-eth}.js`. After the falcon-eth fork
+ * extraction, this module holds only the repo-local seams:
  *
- * KAT-only helpers (explicit-innerSeed keygen, explicit-reader sign) live
- * in `falcon-eth.kat-internal.ts` and MUST NOT be imported here — the
- * runtime grep at `falcon-eth.test.ts` enforces that boundary (AC-5 / AC-6).
+ *   - `keygen()`            — sources a 48 B `innerSeed` from Web Crypto
+ *                             and forwards to noble's `falcon512.keygen`.
+ *   - `signUserOp(...)`     — computes `userOpHash`, calls
+ *                             `falcon512paddedEth.sign` (Keccak-256
+ *                             HashToPoint variant), re-encodes the detached
+ *                             signature via `encodeFalconSignature`, and
+ *                             packs into a `PackedUserOperation`.
+ *   - `preparePublicKeyForDeployment(rawPk, _xofFactory)` — NFR-11 cross-
+ *                             scheme shape shim over `encodeFalconPublicKey`.
+ *                             The `_xofFactory` parameter is unused
+ *                             (Falcon-ETH's pk-transform is deterministic
+ *                             over raw pk bytes); accepted only so the
+ *                             5-scheme call-site grep stays uniform with
+ *                             `mldsa-encoding.ts#preparePublicKeyForDeployment`.
+ *
+ * All low-level crypto (HashToPoint primitive, ABI-level encoders, raw
+ * signature layout) lives in the fork. The fork returns `Uint8Array`
+ * throughout; this module wraps with `bytesToHex` at the viem boundary.
  *
  * Entropy source: Node's global Web Crypto API —
- * `globalThis.crypto.getRandomValues(new Uint8Array(n))`. No `node:crypto`
- * import is required; this matches the idiom established by
- * `test/signers/ml-dsa-eth.ts`.
+ * `globalThis.crypto.getRandomValues(new Uint8Array(n))`. Matches the idiom
+ * used by `test/signers/ml-dsa-eth.ts`.
  */
 
-import { falcon512 } from "@noble/post-quantum/falcon.js";
-import { hexToBytes } from "viem";
+import { falcon512, falcon512paddedEth } from "@noble/post-quantum/falcon.js";
+import {
+  encodeFalconPublicKey,
+  encodeFalconSignature,
+} from "@noble/post-quantum/utils-eth.js";
+import { bytesToHex, hexToBytes, type Hex } from "viem";
 
-import { SignerInputError } from "./errors.js";
-import { falcon512paddedEth } from "./falcon-eth.core.js";
-import { encodeSignatureForZKNOX } from "./falcon-encoding.js";
 import type {
   Keypair,
   PackedUserOperation,
   UnsignedUserOp,
 } from "./index.js";
+import type { XofFactory } from "./mldsa-encoding.js";
 import { computeUserOpHash } from "./userOpHash.js";
 
 /**
- * Generate a fresh Falcon-ETH keypair. Sources a 48-byte `innerSeed` from
+ * Generate a fresh Falcon-ETH keypair. Sources a 48 B `innerSeed` from
  * `globalThis.crypto.getRandomValues` and forwards to noble's
- * `falcon512.keygen`.
+ * `falcon512.keygen` (which validates length via `abytes`).
  *
  * @returns `{ publicKey, secretKey }` — 897 B pk + 1281 B sk.
- *
- * @remarks
- * Production callers must NEVER pass explicit seeds — use `keygenInternal`
- * from `falcon-eth.kat-internal.ts` (KAT-only) for deterministic test
- * vectors.
  */
 export function keygen(): Keypair {
   const innerSeed = new Uint8Array(48);
@@ -55,47 +57,22 @@ export function keygen(): Keypair {
   return falcon512.keygen(innerSeed);
 }
 
-// === Signer (production surface) — Story 2-3 T3; docs/amendments.md §A-006 ==
-
-/**
- * Cumulative byte budget consumed by one Falcon signing call. Noble's
- * `signRaw` calls `random(40)` for the salt then `random(48)` for the
- * FFSampler seed (ETHFALCON `docs/amendments.md` §A-005 "signingDrbg byte
- * decomposition") — exactly 88 B on the happy path. The inline reader below
- * slices this buffer sequentially and throws `SIGNING_BYTES_EXHAUSTED` on
- * over-draw (defense in depth — the budget is tight enough that an
- * exhausted CSPRNG or a future noble-version re-entry would be caught
- * loudly at the randomness boundary rather than leak a short chunk into
- * noble's `abytes` length check).
- */
-const SIGNING_RANDOMNESS_BUDGET = 88;
-
 /**
  * Sign an ERC-4337 v0.7 UserOperation with a Falcon-ETH secret key.
  *
- * Computes `userOpHash` via the shared helper, sources a fresh 88 B hedge
- * from `globalThis.crypto.getRandomValues` (AC-2 — two back-to-back calls
- * with identical inputs return different signatures because the 40 B salt
- * differs), wraps it as a sequential byte stream, and routes through
- * `falcon512paddedEth.sign` (HashToPoint-injected fork — see
- * `falcon-eth.core.ts`). Noble's ~666 B detached output is re-encoded via
- * `encodeSignatureForZKNOX` (Story 2-2) into the 1064 B `salt(40) ||
- * s2_compact(1024)` layout consumed by the on-chain
- * `ZKNOX_falcon.verify(bytes,bytes32,bytes)` entry point (Story 2-4 G6).
+ * Computes `userOpHash`, routes through `falcon512paddedEth.sign`
+ * (HashToPoint-injected via the fork), then re-encodes noble's detached
+ * signature (~666 B: `header ‖ salt ‖ compressed_s2`) into the 1064 B
+ * `salt(40) ‖ s2_compact(1024)` layout consumed by
+ * `ZKNOX_falcon.verify(bytes,bytes32,bytes)`.
  *
- * Mirrors `test/signers/ml-dsa-eth.ts#signUserOp` structure one-for-one; the
- * byte divergence from the ml-dsa-eth path is in the randomness budget
- * (88 vs 32 B), the underlying signer (`falcon512paddedEth.sign` vs
- * `signWithXof`), and the signature layout (1064 B salt||s2_compact vs
- * 2420 B cTilde||z||h).
+ * Randomness comes from `globalThis.crypto.getRandomValues` per call —
+ * noble requests 40 B salt + 48 B FFSampler seed, on-demand. No pre-
+ * allocated buffer, no budget guard: the randomness source is trusted
+ * and the request size is fixed by Falcon's construction.
  *
- * AC-6 boundary: does NOT import from `falcon-eth.kat-internal.ts` — the
- * production path calls `falcon512paddedEth.sign` directly, the same
- * primitive the KAT surface's `signWithKatBytes` wraps with a budget guard.
- *
- * @returns `PackedUserOperation` with `.signature` as a `0x`-prefixed hex
- *   string of exactly 2130 characters (2 prefix + 1064 B × 2 hex chars =
- *   40 salt ‖ 1024 s2_compact).
+ * Two back-to-back calls with identical inputs return different
+ * signatures because the 40 B salt differs (AC-2 of Story 2-3).
  */
 export async function signUserOp(
   secretKey: Uint8Array,
@@ -105,15 +82,10 @@ export async function signUserOp(
 ): Promise<PackedUserOperation> {
   const userOpHash = computeUserOpHash(userOp, entryPointAddress, chainId);
 
-  const randomness = new Uint8Array(SIGNING_RANDOMNESS_BUDGET);
-  globalThis.crypto.getRandomValues(randomness);
-
-  let offset = 0;
-  // The `Falcon` type alias in `@noble/post-quantum/falcon.d.ts` exposes
-  // `sign` via the generic `Signer` shape (`SigOpts` — no `random`). At
-  // runtime, `genFalcon` wires the signing pipeline to accept the
-  // Falcon-specific `FalconSigOpts` (`random?: (n?: number) => Uint8Array`).
-  // The local type cast names the wider contract without reaching into the
+  // Noble's `Falcon` type alias declares `sign` via the generic `Signer`
+  // shape (`SigOpts` — no `random`). At runtime, `genFalcon` wires the
+  // Falcon-specific `FalconSigOpts` which accepts a `random` callback.
+  // The local cast names the wider contract without reaching into the
   // fork's private types.
   const signWithRandom = falcon512paddedEth.sign as (
     msg: Uint8Array,
@@ -122,21 +94,43 @@ export async function signUserOp(
   ) => Uint8Array;
   const nobleSig = signWithRandom(hexToBytes(userOpHash), secretKey, {
     random: (n?: number): Uint8Array => {
-      const len = n ?? 0;
-      if (offset + len > SIGNING_RANDOMNESS_BUDGET) {
-        throw new SignerInputError(
-          "SIGNING_BYTES_EXHAUSTED",
-          `signUserOp CSPRNG over-draw: ${offset} + ${len} B > ${SIGNING_RANDOMNESS_BUDGET} B budget`,
-        );
-      }
-      const chunk = randomness.subarray(offset, offset + len);
-      offset += len;
-      return chunk;
+      const buf = new Uint8Array(n ?? 0);
+      globalThis.crypto.getRandomValues(buf);
+      return buf;
     },
   });
 
   return {
     ...userOp,
-    signature: encodeSignatureForZKNOX(nobleSig),
+    signature: bytesToHex(encodeFalconSignature(nobleSig)),
   };
+}
+
+/**
+ * NFR-11 cross-scheme shape shim over
+ * `@noble/post-quantum/utils-eth.js#encodeFalconPublicKey`.
+ *
+ * Mirrors the 2-parameter signature of
+ * `mldsa-encoding.ts#preparePublicKeyForDeployment` so the 5-scheme
+ * call-site grep stays uniform across Falcon-NIST, Falcon-ETH, ML-DSA-NIST,
+ * ML-DSA-ETH, and ECDSA. The `_xofFactory` parameter is unused —
+ * Falcon-ETH's pk-transform is deterministic over the 897 B raw public key
+ * (forward NTT + compact packing), with no XOF-driven ingestion. Callers
+ * pass `keccakXofFactory` by convention.
+ *
+ * Emits the same 1088-byte `abi.encode(uint256[])` payload as the pre-
+ * extraction `encodePublicKeyForZKNOX` — wrapped at the viem boundary via
+ * `bytesToHex`. On-chain ingestion via `ZKNOX_falcon.setKey(bytes)` +
+ * `abi.decode(data, (uint256[]))` is unchanged.
+ *
+ * @param rawPk       897 B raw Falcon-512 NIST public key.
+ * @param _xofFactory Unused — NFR-11 cross-scheme shape only.
+ * @returns           `Hex` payload directly passable to
+ *                    `falconEthVerifier.setKey(hex)`.
+ */
+export function preparePublicKeyForDeployment(
+  rawPk: Uint8Array,
+  _xofFactory: XofFactory,
+): Hex {
+  return bytesToHex(encodeFalconPublicKey(rawPk));
 }
