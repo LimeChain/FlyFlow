@@ -1,31 +1,32 @@
 /**
- * Task 4 (Story 3-1) self-test.
+ * Task 4 (Story 3-1) self-test — post-fork-extraction.
  *
- * Validates the structural invariants of the noble → ZKNOX encoding bridge
- * without standing up a Hardhat verifier instance: the full cryptographic
- * round-trip (sign → encode → on-chain verify returns `verify.selector`)
- * is covered by Task 6's AC-3 against a deployed `ZKNOX_falcon`.
+ * Validates structural invariants of the ZKNOX wire-format encoders now
+ * owned by the `@noble/post-quantum/utils-eth.js` fork subpath. The full
+ * cryptographic round-trip (sign → encode → on-chain verify returns
+ * `verify.selector`) is covered by the account-level integration tests
+ * against a deployed `ZKNOX_falcon`.
  *
- * Framework: `node:test` + `node:assert/strict` (A-001).
+ * Framework: `node:test` + `node:assert/strict`.
  */
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { falcon512 } from "@noble/post-quantum/falcon.js";
-import { decodeAbiParameters, hexToBytes } from "viem";
-
 import {
-  encodePublicKeyForZKNOX,
-  encodeSignatureForZKNOX,
-} from "./falcon-encoding.js";
+  encodeFalconPublicKey,
+  encodeFalconSignature,
+} from "@noble/post-quantum/utils-eth.js";
+import { decodeAbiParameters } from "viem";
 
-describe("Falcon-512 encoding bridge", () => {
+describe("Falcon-512 encoding bridge (utils-eth)", () => {
   it("encodes a 897-byte public key into ABI-encoded uint256[32]", () => {
     const { publicKey } = falcon512.keygen();
     assert.equal(publicKey.length, 897);
 
-    const encoded = encodePublicKeyForZKNOX(publicKey);
+    const encoded = encodeFalconPublicKey(publicKey);
+    assert.equal(encoded.length, 32 + 32 + 32 * 32, "expected 1088 B ABI envelope");
     const [compact] = decodeAbiParameters(
       [{ type: "uint256[]" }],
       encoded,
@@ -47,14 +48,13 @@ describe("Falcon-512 encoding bridge", () => {
     // re-verify cryptographically here.
     assert.ok(falcon512.verify(sig, msg, publicKey));
 
-    const encoded = encodeSignatureForZKNOX(sig);
-    const bytes = hexToBytes(encoded);
-    assert.equal(bytes.length, 1064, "expected salt(40) + 32 uint256 words = 1064 bytes");
+    const encoded = encodeFalconSignature(sig);
+    assert.equal(encoded.length, 1064, "expected salt(40) + 32 uint256 words = 1064 bytes");
   });
 
   it("rejects public keys with the wrong length", () => {
     assert.throws(
-      () => encodePublicKeyForZKNOX(new Uint8Array(896)),
+      () => encodeFalconPublicKey(new Uint8Array(896)),
       /expected 897 bytes/,
     );
   });
@@ -63,7 +63,7 @@ describe("Falcon-512 encoding bridge", () => {
     const bad = new Uint8Array(897);
     bad[0] = 0x00;
     assert.throws(
-      () => encodePublicKeyForZKNOX(bad),
+      () => encodeFalconPublicKey(bad),
       /expected header byte 0x9/,
     );
   });
@@ -72,7 +72,7 @@ describe("Falcon-512 encoding bridge", () => {
     const bad = new Uint8Array(700);
     bad[0] = 0x00;
     assert.throws(
-      () => encodeSignatureForZKNOX(bad),
+      () => encodeFalconSignature(bad),
       /expected header byte 0x39/,
     );
   });

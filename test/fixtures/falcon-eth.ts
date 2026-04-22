@@ -45,7 +45,7 @@
 import hre from "hardhat";
 import { type Hex, hexToBytes } from "viem";
 
-import { preparePublicKeyForDeployment } from "../signers/falcon-eth.core.js";
+import { preparePublicKeyForDeployment } from "../signers/falcon-eth.js";
 import { keccakXofFactory } from "../signers/mldsa-encoding.js";
 
 type ViemConnection = Awaited<ReturnType<typeof hre.network.connect>>["viem"];

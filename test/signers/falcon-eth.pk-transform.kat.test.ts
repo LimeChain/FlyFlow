@@ -15,30 +15,28 @@
  *      `preparePublicKeyForDeployment` emits dynamic `uint256[]` (1088 B;
  *      required by on-chain `ZKNOX_ethfalcon.setKey` via `abi.decode(data,
  *      (uint256[]))`). The 64 B delta is the dynamic-array `[offset][length]`
- *      prefix. Structural coefficient-equality is the semantic oracle — see
- *      `docs/amendments.md` §A-007 for root cause, precedent
- *      (`test/signers/mldsa-encoding.pk-transform.kat.test.ts:146-204`), and
- *      the architecture divergence-probe anchor
- *      (`docs/architecture.md:199`).
+ *      prefix. Structural coefficient-equality is the semantic oracle.
  *
- *   2. AC-2 — `pkToNttCompact(hexToBytes(v.publicKey), keccakXofFactory)`
- *      returns a `bigint[]` of length 32 where every element `< 2^256`.
+ *   2. AC-2 — inline `decodeAbiParameters([{type:"uint256[]"}],
+ *      encodeFalconPublicKey(hexToBytes(v.publicKey)))[0]` returns a
+ *      `bigint[]` of length 32 where every element `< 2^256`.
  *
  * THIS IS THE G5 GATE — the pk-transform empirical guard against DD drift
  * between falcon and falcon-eth pk encodings. Without it, Story 2-4's on-chain
  * `validateUserOp` path (G6) would build on unverified pk-transform ground.
  *
- * Binding notes (see docs/stories/2-4.md §"Architecture Guardrails §G5"):
+ * Binding notes:
  *   - The `xofFactory` parameter is present for NFR-11 cross-scheme symmetry
  *     with ml-dsa-eth's two-factory `preparePublicKeyForDeployment`. Falcon-ETH
  *     itself does NOT consume the factory internally because its forward NTT
  *     is deterministic over the 897-byte raw public key (no XOF-driven
  *     ingestion at pk-transform time). The parameter exists so a future
  *     NFR-11 structural grep sees the same function shape across schemes.
- *   - Both new exports delegate to `encodePublicKeyForZKNOX` at
- *     `test/signers/falcon-encoding.ts:128` — the raw→NTT→compact→`abi.encode`
- *     transform is already correct for falcon and the coefficient-difference
- *     between falcon and falcon-eth at the pk-transform layer is ZERO per DD.
+ *   - Post-fork-extraction, `preparePublicKeyForDeployment` lives in
+ *     `./falcon-eth.ts` as a thin shim over
+ *     `@noble/post-quantum/utils-eth.js#encodeFalconPublicKey` — the raw→NTT→
+ *     compact→`abi.encode` transform is shared across falcon and falcon-eth
+ *     (coefficient-difference at the pk-transform layer is ZERO per DD).
  *     AC-1 is the empirical guard against any future DD drift.
  *
  * Framework: `node:test` + `node:assert/strict` — matches sibling KAT tests
@@ -49,13 +47,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { encodeFalconPublicKey } from "@noble/post-quantum/utils-eth.js";
 import { decodeAbiParameters, hexToBytes } from "viem";
 
 import { loadKatVectors } from "../fixtures/kat/index.js";
-import {
-  pkToNttCompact,
-  preparePublicKeyForDeployment,
-} from "./falcon-eth.core.js";
+import { preparePublicKeyForDeployment } from "./falcon-eth.js";
 import { keccakXofFactory } from "./mldsa-encoding.js";
 
 /** AC-2 structural bound: every compact element < 2^256. */
@@ -85,12 +81,12 @@ const EXPECTED_COMPACT_WORDS = 32;
  *   (d) ±3 coefficients expected-bigint window at that index
  *   (e) three-cause hint line naming the most likely port-bug sources in
  *       prior-probability order:
- *         1. falcon-encoding drift (`encodePublicKeyForZKNOX` at
- *            `falcon-encoding.ts:128` — the delegation target)
+ *         1. fork's `encodeFalconPublicKey` drift (raw→NTT→compact→abi.encode
+ *            transform, now owned by @noble/post-quantum/utils-eth.js)
  *         2. fixture regenerated under a different submodule SHA
  *            (check `FalconKatVectorsFile.submoduleSha` vs `.gitmodules`)
  *         3. DD drift between falcon and falcon-eth pk encodings
- *            (would break the delegate-to-`encodePublicKeyForZKNOX` design)
+ *            (would break the shared-transform design)
  */
 function formatG5DivergenceMessage(
   vectorId: string,
@@ -122,12 +118,12 @@ function formatG5DivergenceMessage(
     `  expected [${start}..${endE}): ${ctxExpected.join(", ")}\n` +
     `\n` +
     `  G5 divergence — likely root causes (prior-probability order):\n` +
-    `    1. encodePublicKeyForZKNOX drift — check test/signers/falcon-encoding.ts:128 ` +
-    `(delegation target; the raw→NTT→compact→abi.encode transform)\n` +
+    `    1. encodeFalconPublicKey drift — raw→NTT→compact→abi.encode ` +
+    `transform at @noble/post-quantum/utils-eth.js (fork-owned)\n` +
     `    2. fixture regenerated under a different submodule SHA — ` +
     `check FalconKatVectorsFile.submoduleSha vs .gitmodules (pinned 03ed0d60c67087527de7c4a3c1c469b89611bd68)\n` +
     `    3. DD drift between falcon and falcon-eth pk encodings — ` +
-    `would break the delegate-to-encodePublicKeyForZKNOX design\n`
+    `would break the shared raw→NTT→compact transform\n`
   );
 }
 
@@ -149,26 +145,35 @@ describe("Falcon-ETH pk-transform G5 KAT structural coefficient-equality (AC-1 a
   // transform `preparePublicKeyForDeployment` composes, both AC-1 and AC-2
   // would surface the bug, but AC-2 localises the failure to the pre-
   // `abi.encode` layer).
-  it(`AC-2 — pkToNttCompact returns bigint[] of length ${EXPECTED_COMPACT_WORDS}, every element < 2^256 (all ${vectors.length} vectors)`, () => {
+  it(`AC-2 — encodeFalconPublicKey → decodeAbiParameters yields bigint[] of length ${EXPECTED_COMPACT_WORDS}, every element < 2^256 (all ${vectors.length} vectors)`, () => {
     for (const v of vectors) {
       const rawPk = hexToBytes(v.publicKey);
-      const compact = pkToNttCompact(rawPk, keccakXofFactory);
+      // Post-extraction: pkToNttCompact is dropped. The equivalent of the
+      // old structural sub-check is an inline ABI-decode of the fork's
+      // encodeFalconPublicKey output — exercises the same raw → NTT →
+      // compact transform end-to-end, just without the thin repo-side
+      // projection wrapper.
+      const encodedBytes = encodeFalconPublicKey(rawPk);
+      const [compact] = decodeAbiParameters(
+        [{ type: "uint256[]" }],
+        encodedBytes,
+      ) as [readonly bigint[]];
 
       assert.equal(
         compact.length,
         EXPECTED_COMPACT_WORDS,
-        `vec ${v.id}: pkToNttCompact length ${compact.length} !== ${EXPECTED_COMPACT_WORDS}`,
+        `vec ${v.id}: compact length ${compact.length} !== ${EXPECTED_COMPACT_WORDS}`,
       );
 
       for (let i = 0; i < compact.length; i++) {
-        const word = compact[i];
+        const word = compact[i] as bigint;
         assert.ok(
           typeof word === "bigint",
-          `vec ${v.id}: pkToNttCompact[${i}] type ${typeof word} !== "bigint"`,
+          `vec ${v.id}: compact[${i}] type ${typeof word} !== "bigint"`,
         );
         assert.ok(
           word < UINT256_BOUND,
-          `vec ${v.id}: pkToNttCompact[${i}]=${word} >= 2^256`,
+          `vec ${v.id}: compact[${i}]=${word} >= 2^256`,
         );
       }
     }

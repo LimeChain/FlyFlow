@@ -43,10 +43,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { hashToPointEVM } from "@noble/post-quantum/utils-eth.js";
 import { hexToBytes } from "viem";
 
 import { loadHashToPointVectors } from "../fixtures/kat/index.js";
-import { hashToPointEVM } from "./falcon-eth.core.js";
 
 /**
  * Shared failure-message template for G2 coefficient divergence.

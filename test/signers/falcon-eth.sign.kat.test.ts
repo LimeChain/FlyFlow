@@ -1,51 +1,41 @@
 /**
- * Falcon-ETH G4 signer KAT byte-identity (Story 2-3 Task T4; AC-1 + AC-6).
+ * Falcon-ETH G4 signer KAT byte-identity.
  *
  * **G4 IS THE signer byte-identity gate for the falcon-eth oracle chain.**
- * Downstream Story 2-4 (integration + G5 pk-transform + G6 on-chain
- * validateUserOp) consumes G4's signer surface; a byte-wrong signer poisons
- * every downstream assertion.
+ * A byte-wrong signer poisons every downstream assertion (pk-transform G5,
+ * on-chain validateUserOp G6).
  *
  * For every vector `v` returned by `loadKatVectors("falcon-eth")` (≥100):
- *   1. Derive a `BytesReader` from
- *      `rngAesCtrDrbg256(hexToBytes(v.drbgSeed))` — TS-side DRBG replay per
- *      `docs/amendments.md` §A-005 "DRBG derivation contract". Advance past
- *      the 48 B keygen draw (`drbg.randomBytes(48)`) BEFORE wiring the
- *      reader; the remaining stream is the 40 B salt + 48 B FFSampler seed
- *      noble's `signRaw` consumes per §A-005 "signingDrbg byte
- *      decomposition" (88 B total).
- *   2. Call `signWithKatBytes(hexToBytes(v.secretKey),
- *      hexToBytes(v.message), reader)` — routes through the
- *      HashToPoint-injected `falcon512paddedEth` per
- *      `docs/amendments.md` §A-006 Strategy E (fork-side injection), then
- *      re-encodes via `encodeSignatureForZKNOX` (Story 2-2).
+ *   1. Build a DRBG from `rngAesCtrDrbg256(hexToBytes(v.drbgSeed))`. Advance
+ *      past the 48 B keygen draw (`drbg.randomBytes(48)`) BEFORE signing;
+ *      the remaining stream is the 40 B salt + 48 B FFSampler seed the
+ *      Falcon signer consumes (88 B total).
+ *   2. Call `falcon512paddedEth.sign(msg, sk, { random })` where `random(n)`
+ *      returns `drbg.randomBytes(n)`. Re-encode the detached signature via
+ *      `encodeFalconSignature` from `@noble/post-quantum/utils-eth.js`.
  *   3. Assert the returned 1064 B `Uint8Array` (40 B salt || 1024 B
  *      s2_compact) byte-equals `hexToBytes(v.signature)` from the committed
  *      fixture (`test/fixtures/kat/falcon-eth/vectors.json`; pinned
  *      submodule SHA `03ed0d60c67087527de7c4a3c1c469b89611bd68`).
  *
  * On divergence, `formatG4DivergenceMessage` surfaces the first-differing
- * byte offset, ±8 B actual vs expected context, AND an AC-6 hint enumerating
- * the two likely divergence modes (A-005-equivalent DRBG state-advancement
- * bug OR fork-side HashToPoint injection bug) with a pointer to
- * `docs/amendments.md` §A-006 for logging.
+ * byte offset, ±8 B actual vs expected context, and a two-mode hint
+ * enumerating the likely divergence sources (DRBG state-advancement bug or
+ * fork-side HashToPoint drift).
  *
- * Framework: `node:test` + `node:assert/strict` — matches sibling KAT tests
- * (`falcon-eth.keygen.kat.test.ts`, `ml-dsa-eth.sign.kat.test.ts`).
+ * Framework: `node:test` + `node:assert/strict`.
  */
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { rngAesCtrDrbg256 } from "@noble/ciphers/aes.js";
+import { falcon512paddedEth } from "@noble/post-quantum/falcon.js";
+import { encodeFalconSignature } from "@noble/post-quantum/utils-eth.js";
 import { type Hex, bytesToHex, hexToBytes } from "viem";
 
 import { loadKatVectors } from "../fixtures/kat/index.js";
 import { bytesEqual } from "../utils/assert-bytes.js";
-import {
-  type BytesReader,
-  signWithKatBytes,
-} from "./falcon-eth.kat-internal.js";
 
 /**
  * Shared failure-message template for G4 signature-divergence.
@@ -60,16 +50,14 @@ import {
  *   (b) first-differing byte offset
  *   (c) ±8 bytes actual-hex window at that offset
  *   (d) ±8 bytes expected-hex window at that offset
- *   (e) AC-6 two-mode divergence hint enumerating:
- *       1. DRBG state-advancement bug à la A-005 — hint: check that
- *          `drbg.randomBytes(48)` is called BEFORE the reader is wired
- *          (advances past keygen's inner_seed draw per A-005).
- *       2. Fork-side HashToPoint injection bug — hint: verify
- *          `falcon512paddedEth` spreads `falcon512paddedOpts` (for
- *          `maxS2Len: 625` + `padded: true`) AND sets
- *          `hashToPoint: hashToPointEVM`; verify the fork's branch
- *          `falcon-eth-hashtopoint-injection` is pushed (not local-only).
- *   (f) pointer to `docs/amendments.md` §A-006 for logging.
+ *   (e) two-mode divergence hint enumerating:
+ *       1. DRBG state-advancement bug — hint: check that
+ *          `drbg.randomBytes(48)` is called BEFORE the sign call
+ *          (advances past keygen's inner_seed draw).
+ *       2. Fork-side HashToPoint drift — hint: verify
+ *          `falcon512paddedEth` (from `@noble/post-quantum/falcon.js`)
+ *          is correctly wired to `hashToPointEVM` from
+ *          `@noble/post-quantum/utils-eth.js` (Keccak-256 counter mode).
  */
 function formatG4DivergenceMessage(
   vectorId: string,
@@ -100,22 +88,18 @@ function formatG4DivergenceMessage(
     `  actual   [${start}..${endA}): ${ctxActual}\n` +
     `  expected [${start}..${endE}): ${ctxExpected}\n` +
     `\n` +
-    `  G4 divergence — AC-6 likely root causes (enumerate on >1 vector failing):\n` +
-    `    1. DRBG state-advancement bug à la A-005 — hint: check that ` +
-    `drbg.randomBytes(48) is called BEFORE the reader is wired ` +
-    `(advances past keygen's inner_seed draw per docs/amendments.md §A-005 ` +
-    `"DRBG derivation contract"; see "signingDrbg byte decomposition" for the ` +
-    `40 B salt + 48 B FFSampler seed = 88 B budget).\n` +
-    `    2. Fork-side HashToPoint injection bug — hint: verify ` +
-    `falcon512paddedEth is constructed by spreading falcon512paddedOpts ` +
-    `(which supplies maxS2Len: 625 + padded: true from the fork) AND setting ` +
-    `hashToPoint: hashToPointEVM; verify the fork's branch ` +
-    `falcon-eth-hashtopoint-injection is pushed (not local-only).\n` +
-    `  See docs/amendments.md §A-006 (Strategy E fork injection) for logging.\n`
+    `  G4 divergence — likely root causes (enumerate on >1 vector failing):\n` +
+    `    1. DRBG state-advancement bug — hint: check that ` +
+    `drbg.randomBytes(48) is called BEFORE the sign call ` +
+    `(advances past keygen's inner_seed draw; the remaining stream is ` +
+    `40 B salt + 48 B FFSampler seed = 88 B total).\n` +
+    `    2. Fork-side HashToPoint drift — hint: verify ` +
+    `falcon512paddedEth (from @noble/post-quantum/falcon.js) is wired to ` +
+    `hashToPointEVM from @noble/post-quantum/utils-eth.js.\n`
   );
 }
 
-describe("Falcon-ETH signer G4 KAT byte-identity (AC-1 / AC-6)", () => {
+describe("Falcon-ETH signer G4 KAT byte-identity", () => {
   const vectors = loadKatVectors("falcon-eth");
 
   it(`iterates all ${vectors.length} vectors (floor: ≥100)`, () => {
@@ -125,21 +109,30 @@ describe("Falcon-ETH signer G4 KAT byte-identity (AC-1 / AC-6)", () => {
     );
   });
 
-  for (const v of vectors) {
-    it(`vec ${v.id}: signWithKatBytes matches v.signature byte-for-byte`, () => {
-      const drbg = rngAesCtrDrbg256(hexToBytes(v.drbgSeed));
-      // A-005 DRBG derivation contract — advance past keygen's 48 B innerSeed
-      // draw (see docs/amendments.md §A-005 "signingDrbg byte decomposition").
-      drbg.randomBytes(48);
-      const reader: BytesReader = {
-        read: (n: number): Uint8Array => drbg.randomBytes(n),
-      };
+  // Noble's `Falcon` type declares `sign` via the generic `Signer` shape
+  // (`SigOpts` — no `random`). At runtime, `genFalcon` wires the
+  // Falcon-specific `FalconSigOpts` which accepts a `random` callback.
+  // The local cast names the wider contract without reaching into the
+  // fork's private types.
+  const signWithRandom = falcon512paddedEth.sign as (
+    msg: Uint8Array,
+    secretKey: Uint8Array,
+    opts: { random: (n?: number) => Uint8Array },
+  ) => Uint8Array;
 
-      const actual = signWithKatBytes(
-        hexToBytes(v.secretKey as Hex),
+  for (const v of vectors) {
+    it(`vec ${v.id}: falcon512paddedEth.sign → encodeFalconSignature matches v.signature byte-for-byte`, () => {
+      const drbg = rngAesCtrDrbg256(hexToBytes(v.drbgSeed));
+      // Advance past keygen's 48 B innerSeed draw. The remaining DRBG stream
+      // feeds the signer (40 B salt + 48 B FFSampler seed).
+      drbg.randomBytes(48);
+
+      const nobleSig = signWithRandom(
         hexToBytes(v.message as Hex),
-        reader,
+        hexToBytes(v.secretKey as Hex),
+        { random: (n?: number): Uint8Array => drbg.randomBytes(n ?? 0) },
       );
+      const actual = encodeFalconSignature(nobleSig);
       const expected = hexToBytes(v.signature as Hex);
 
       if (!bytesEqual(actual, expected)) {

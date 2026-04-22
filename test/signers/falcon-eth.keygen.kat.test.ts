@@ -7,8 +7,9 @@
  *      contract". `@noble/ciphers#rngAesCtrDrbg256` is byte-identical to
  *      ETHFALCON's Python `AES256_CTR_DRBG` (A-005 Evidence §5; vec-0
  *      `innerSeed` starts with `0x7c9935a0b07694aa…`).
- *   2. Call `keygenInternal(innerSeed)` (Task T2 wrapper around
- *      `@noble/post-quantum/falcon.js#falcon512.keygen`).
+ *   2. Call `falcon512.keygen(innerSeed)` directly (post-fork-extraction:
+ *      the repo-side `keygenInternal` 48-byte-seed wrapper was dropped;
+ *      noble's `abytes` handles length validation).
  *   3. Assert `publicKey` (897 B) and `secretKey` (1281 B) are byte-identical
  *      to `hexToBytes(v.publicKey)` / `hexToBytes(v.secretKey)` from the
  *      committed fixture (`test/fixtures/kat/falcon-eth/vectors.json`;
@@ -25,11 +26,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { rngAesCtrDrbg256 } from "@noble/ciphers/aes.js";
+import { falcon512 } from "@noble/post-quantum/falcon.js";
 import { bytesToHex, hexToBytes } from "viem";
 
 import { loadKatVectors } from "../fixtures/kat/index.js";
 import { bytesEqual } from "../utils/assert-bytes.js";
-import { keygenInternal } from "./falcon-eth.kat-internal.js";
 
 /**
  * Shared failure-message template for G3 pk/sk divergence.
@@ -104,10 +105,10 @@ describe("Falcon-ETH keygen G3 KAT byte-identity (AC-1)", () => {
   });
 
   for (const v of vectors) {
-    it(`vec ${v.id}: keygenInternal(rngAesCtrDrbg256(drbgSeed).randomBytes(48)) byte-equals .rsp pk+sk`, () => {
+    it(`vec ${v.id}: falcon512.keygen(rngAesCtrDrbg256(drbgSeed).randomBytes(48)) byte-equals .rsp pk+sk`, () => {
       const drbg = rngAesCtrDrbg256(hexToBytes(v.drbgSeed));
       const innerSeed = drbg.randomBytes(48);
-      const { publicKey, secretKey } = keygenInternal(innerSeed);
+      const { publicKey, secretKey } = falcon512.keygen(innerSeed);
       const expectedPk = hexToBytes(v.publicKey);
       const expectedSk = hexToBytes(v.secretKey);
       if (!bytesEqual(publicKey, expectedPk)) {

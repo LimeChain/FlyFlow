@@ -16,10 +16,9 @@
  *      returns `abi.encodePacked(pointer)`).
  */
 
+import { encodeFalconPublicKey } from "@noble/post-quantum/utils-eth.js";
 import hre from "hardhat";
-import { hexToBytes, type Hex, type PublicClient } from "viem";
-
-import { encodePublicKeyForZKNOX } from "../signers/falcon-encoding.js";
+import { bytesToHex, hexToBytes, type Hex, type PublicClient } from "viem";
 
 type ViemConnection = Awaited<ReturnType<typeof hre.network.connect>>["viem"];
 
@@ -33,7 +32,7 @@ export async function registerPublicKey(
   rawPublicKey: Uint8Array,
   publicClient: PublicClient,
 ): Promise<Hex> {
-  const encoded = encodePublicKeyForZKNOX(rawPublicKey);
+  const encoded = bytesToHex(encodeFalconPublicKey(rawPublicKey));
 
   const { result: pointerHex } = await falconVerifier.simulate.setKey!([encoded]);
 
