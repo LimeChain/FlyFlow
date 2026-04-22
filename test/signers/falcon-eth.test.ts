@@ -11,10 +11,11 @@
  * - Seed-length rejection at the fork boundary — noble's `falcon512.keygen`
  *   uses `abytes(seed, 48, 'seed')` which throws on non-48-byte or non-
  *   `Uint8Array` inputs. Post-extraction, the repo does NOT wrap this with
- *   a `SignerInputError { code: "INVALID_INNER_SEED_LENGTH" }`; tests
- *   assert on noble's native error class (deliberate coverage reduction per
- *   `docs/quick-extract-falconeth.md` LD-6 — error-code taxonomy stays in
- *   the repo only for ML-DSA paths).
+ *   a `SignerInputError`; tests assert on noble's native error class
+ *   (deliberate coverage reduction per `docs/.archive-extract-falconeth/
+ *   quick-extract-falconeth.md` LD-6 — the ML-DSA paths followed the same
+ *   pattern during the subsequent ml-dsa-eth extraction, fully collapsing
+ *   the `SignerInputError` class).
  *
  * KAT byte-identity is covered by `falcon-eth.keygen.kat.test.ts`.
  *
