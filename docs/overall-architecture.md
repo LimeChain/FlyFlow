@@ -56,7 +56,7 @@ All four PQC accounts expose the same shape: immutable verifier reference, `byte
 | Scheme       | Production file                   | KAT-only sibling (explicit seeds)                  | Underlying library                                                    |
 | ------------ | --------------------------------- | -------------------------------------------------- | --------------------------------------------------------------------- |
 | `ecdsa`      | `test/signers/ecdsa.ts`           | —                                                  | viem                                                                  |
-| `falcon`     | `test/signers/falcon.ts`          | —                                                  | `@noble/post-quantum/falcon.js` (upstream shape via fork — see below) |
+| `falcon`     | `test/signers/falcon.ts`          | —                                                  | `@noble/post-quantum/falcon.js#falcon512` (SHAKE-256 HashToPoint) + `@noble/post-quantum/utils-eth.js#encodeFalconSignature` (shared ZKNox wire-reshape with the ETH variant — see §Signer Fork Strategy) |
 | `mldsa`      | `test/signers/ml-dsa.ts`          | —                                                  | `@noble/post-quantum/ml-dsa.js#ml_dsa44`                              |
 | `mldsa-eth`  | `test/signers/ml-dsa-eth.ts`      | `test/signers/ml-dsa-eth.kat-internal.ts`          | `ml-dsa-eth.core.ts` + `mldsa-encoding.ts` + `keccak-prg.ts`          |
 | `falcon-eth` | `test/signers/falcon-eth.ts`      | — (KAT tests call noble primitives directly post-fork-extraction) | Fork-owned: `@noble/post-quantum/falcon.js#falcon512paddedEth` + `@noble/post-quantum/utils-eth.js` (hashToPointEVM, encodeFalconPublicKey, encodeFalconSignature) |
