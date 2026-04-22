@@ -41,7 +41,7 @@ import type {
   PackedUserOperation,
   UnsignedUserOp,
 } from "./index.js";
-import type { XofFactory } from "./mldsa-encoding.js";
+import type { XofFactory } from "@noble/post-quantum/utils-eth.js";
 import { computeUserOpHash } from "./userOpHash.js";
 
 /**

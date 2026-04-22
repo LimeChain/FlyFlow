@@ -45,8 +45,9 @@
 import hre from "hardhat";
 import { type Hex, hexToBytes } from "viem";
 
+import { keccakXofFactory } from "@noble/post-quantum/utils-eth.js";
+
 import { preparePublicKeyForDeployment } from "../signers/falcon-eth.js";
-import { keccakXofFactory } from "../signers/mldsa-encoding.js";
 
 type ViemConnection = Awaited<ReturnType<typeof hre.network.connect>>["viem"];
 

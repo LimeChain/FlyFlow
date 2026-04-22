@@ -46,7 +46,7 @@ import { hexToBytes } from "viem";
 
 import { loadFalconPrgVectors } from "../fixtures/kat/index.js";
 import { assertBytesEqual } from "../utils/assert-bytes.js";
-import { createKeccakPrg } from "./keccak-prg.js";
+import { createKeccakPrg } from "@noble/post-quantum/utils-eth.js";
 
 /**
  * DD-13 reminder appended to any divergence failure. Names `falconKeccakXofFactory`

@@ -25,19 +25,19 @@
 
 import { describe, it } from "node:test";
 
-import { hexToBytes, bytesToHex, type Hex } from "viem";
+import { ml_dsa44eth } from "@noble/post-quantum/ml-dsa.js";
+import { bytesToHex, type Hex, hexToBytes } from "viem";
 
 import { loadKatVectors } from "../fixtures/kat/index.js";
 import { assertBytesEqual } from "../utils/assert-bytes.js";
-import { keygenInternal } from "./ml-dsa-eth.kat-internal.js";
 
 describe("ml-dsa-eth keygen G1 KAT (AC-3-1)", () => {
   const vectors = loadKatVectors("mldsa-eth");
 
-  it("all 100 KAT vectors: keygenInternal(zeta) matches (publicKey, secretKey) byte-for-byte", () => {
+  it("all 100 KAT vectors: ml_dsa44eth.keygen(zeta) matches (publicKey, secretKey) byte-for-byte", () => {
     for (const v of vectors) {
       const zeta = hexToBytes(v.zeta as Hex);
-      const { publicKey, secretKey } = keygenInternal(zeta);
+      const { publicKey, secretKey } = ml_dsa44eth.keygen(zeta);
       const expectedPk = hexToBytes(v.publicKey as Hex);
       const expectedSk = hexToBytes(v.secretKey as Hex);
       assertBytesEqual(

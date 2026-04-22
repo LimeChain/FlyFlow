@@ -49,14 +49,14 @@
 
 import { describe, it } from "node:test";
 
-import { type Hex, decodeAbiParameters, hexToBytes } from "viem";
+import {
+  encodeMlDsaPublicKey,
+  keccakXofFactory,
+} from "@noble/post-quantum/utils-eth.js";
+import { bytesToHex, decodeAbiParameters, type Hex, hexToBytes } from "viem";
 
 import { loadKatVectors } from "../fixtures/kat/index.js";
 import { assertBytesEqual } from "../utils/assert-bytes.js";
-import {
-  keccakXofFactory,
-  preparePublicKeyForDeployment,
-} from "./mldsa-encoding.js";
 
 // ML-DSA-44 parameter constants — FIPS 204 Table 2. Duplicated here (not
 // imported) because core.ts is signer-internal and this test lives in
@@ -148,10 +148,12 @@ describe("G3 — ml-dsa-eth pk-transform KAT (AC-5-2)", () => {
 
   it(`all ${vectors.length} vectors: preparePublicKeyForDeployment coefficient-identical to fixture reshapedPublicKey`, () => {
     for (const v of vectors) {
-      const actualHex = preparePublicKeyForDeployment(
-        hexToBytes(v.publicKey as Hex),
-        keccakXofFactory,
-        keccakXofFactory,
+      const actualHex = bytesToHex(
+        encodeMlDsaPublicKey(
+          hexToBytes(v.publicKey as Hex),
+          keccakXofFactory,
+          keccakXofFactory,
+        ),
       );
 
       // Outer decode: both TS and Python use (bytes, bytes, bytes).

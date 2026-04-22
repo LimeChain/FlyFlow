@@ -39,13 +39,12 @@
  *      abi.encodePacked(pointer)).
  */
 
-import hre from "hardhat";
-import { type Hex, hexToBytes } from "viem";
-
 import {
+  encodeMlDsaPublicKey,
   keccakXofFactory,
-  preparePublicKeyForDeployment,
-} from "../signers/mldsa-encoding.js";
+} from "@noble/post-quantum/utils-eth.js";
+import hre from "hardhat";
+import { bytesToHex, type Hex, hexToBytes } from "viem";
 
 type ViemConnection = Awaited<ReturnType<typeof hre.network.connect>>["viem"];
 
@@ -67,11 +66,10 @@ export async function registerPublicKey(
 ): Promise<Hex> {
   // ETH path (DD-1 LOCKED + A-002): xofFactory = xofFactory2 =
   // keccakXofFactory — same factory twice, replacing the NIST
-  // `(shake256, shake128)` pair.
-  const encoded = preparePublicKeyForDeployment(
-    rawPublicKey,
-    keccakXofFactory,
-    keccakXofFactory,
+  // `(shake256, shake128)` pair. Fork's `encodeMlDsaPublicKey` returns
+  // `Uint8Array`; wrap with `bytesToHex` at the viem boundary.
+  const encoded = bytesToHex(
+    encodeMlDsaPublicKey(rawPublicKey, keccakXofFactory, keccakXofFactory),
   );
 
   // Use the contract's bound simulate/write so the calls hit the same

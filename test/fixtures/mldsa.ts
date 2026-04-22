@@ -25,14 +25,13 @@
  * Ref: ETHDILITHIUM/src/ZKNOX_dilithium.sol:23 (setKey returns abi.encodePacked(pointer))
  */
 
-import hre from "hardhat";
-import { hexToBytes, type Hex } from "viem";
-
 import {
-  preparePublicKeyForDeployment,
+  encodeMlDsaPublicKey,
   shake128XofFactory,
   shake256XofFactory,
-} from "../signers/mldsa-encoding.js";
+} from "@noble/post-quantum/utils-eth.js";
+import hre from "hardhat";
+import { bytesToHex, hexToBytes, type Hex } from "viem";
 
 type ViemConnection = Awaited<ReturnType<typeof hre.network.connect>>["viem"];
 
@@ -52,10 +51,10 @@ export async function registerPublicKey(
 ): Promise<Hex> {
   // NIST path (A-002): xofFactory = _xof = SHAKE-256 (H/tr);
   //                     xofFactory2 = _xof2 = SHAKE-128 (ExpandA).
-  const encoded = preparePublicKeyForDeployment(
-    rawPublicKey,
-    shake256XofFactory,
-    shake128XofFactory,
+  // Fork's `encodeMlDsaPublicKey` returns `Uint8Array`; wrap with
+  // `bytesToHex` at the viem boundary.
+  const encoded = bytesToHex(
+    encodeMlDsaPublicKey(rawPublicKey, shake256XofFactory, shake128XofFactory),
   );
 
   // Use the contract's bound simulate/write so the calls hit the same

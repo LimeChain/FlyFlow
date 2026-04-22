@@ -19,7 +19,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { createKeccakPrg, PrgLifecycleError } from "./keccak-prg.js";
+import {
+  createKeccakPrg,
+  PrgLifecycleError,
+} from "@noble/post-quantum/utils-eth.js";
 
 describe("Keccak-PRG lifecycle guards", () => {
   it("throws PRG_INJECT_AFTER_FLIP when inject() is called after flip()", () => {

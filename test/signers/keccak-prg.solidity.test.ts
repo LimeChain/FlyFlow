@@ -36,7 +36,7 @@ import hre from "hardhat";
 import { bytesToHex, hexToBytes } from "viem";
 
 import { loadPrgVectors } from "../fixtures/kat/index.js";
-import { createKeccakPrg } from "./keccak-prg.js";
+import { createKeccakPrg } from "@noble/post-quantum/utils-eth.js";
 
 describe("Keccak-PRG G0-prime Solidity cross-check (JS ≡ ZKNOX_keccak_prng.sol)", () => {
   it("drives KeccakPrngHarness for each Layer-2 fixture and asserts byte-identity vs JS createKeccakPrg", async () => {

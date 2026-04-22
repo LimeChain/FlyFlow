@@ -30,13 +30,12 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { bytesToHex, hexToBytes, type Hex } from "viem";
-
 import {
-  preparePublicKeyForDeployment,
+  encodeMlDsaPublicKey,
   shake128XofFactory,
   shake256XofFactory,
-} from "../test/signers/mldsa-encoding.js";
+} from "@noble/post-quantum/utils-eth.js";
+import { bytesToHex, hexToBytes, type Hex } from "viem";
 
 const THIS_FILE = fileURLToPath(import.meta.url);
 const REPO_ROOT = path.resolve(path.dirname(THIS_FILE), "..");
@@ -123,10 +122,10 @@ function main(): void {
     }
     // A-002 two-factory NIST call: xofFactory = SHAKE-256 (H/tr),
     //                              xofFactory2 = SHAKE-128 (ExpandA).
-    const reshaped = preparePublicKeyForDeployment(
-      pkBytes,
-      shake256XofFactory,
-      shake128XofFactory,
+    // Fork's `encodeMlDsaPublicKey` returns `Uint8Array`; wrap at the viem
+    // boundary so the captured fixture stays a `0x`-prefixed hex string.
+    const reshaped = bytesToHex(
+      encodeMlDsaPublicKey(pkBytes, shake256XofFactory, shake128XofFactory),
     );
     return {
       id: `nist-vec-${String(r.count).padStart(3, "0")}`,

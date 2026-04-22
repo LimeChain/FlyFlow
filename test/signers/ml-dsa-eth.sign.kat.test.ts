@@ -1,103 +1,55 @@
 /**
- * Story 4 Task 4 — G2 KAT byte-identity + rejection-counter test
- * (AC-4-1 primary, AC-4-5 supporting).
+ * G2 KAT — ml-dsa-eth signer byte-identity (AC-4-1).
  *
  * Iterates every vector in `test/fixtures/kat/mldsa-eth/vectors.json`
  * (Story 1 AC-1-1 capture — `sm[:-mlen]` extracted from
- * `PQCsignKAT_Dilithium2_ETH.rsp`) and asserts that the TS signer
- * fork produces byte-identical 2420 B signatures to the Python
- * reference via `signWithRnd(sk, msg, rnd)` — the G2 oracle in the
- * four-implementation chain (DD-11). Without G2, Story 5's on-chain
- * verifier gate (G4) would build on unverified signer ground.
+ * `PQCsignKAT_Dilithium2_ETH.rsp`) and asserts that the fork's signer
+ * produces byte-identical 2420 B signatures to the Python reference via
+ * `ml_dsa44eth.sign(msg, sk, { extraEntropy: rnd })` — the G2 oracle in
+ * the four-implementation chain (DD-11).
  *
- * Factory under test: `keccakXofFactory` routed via
- * `ml-dsa-eth.kat-internal.ts#signWithRnd` →
- * `ml-dsa-eth.core.ts#signWithXof` (single-factory collapse per DD-1).
- *
- * A separate `it` block calls `signWithXofInstrumented` directly to
- * exercise the rejection-loop observably — AC-4-5 requires
- * `totalIterations > vectorCount` strictly (≥1 vector needed a retry).
- * Stats (min/max/avg iterations) print via `console.info` for a
- * historical record; they are informational, not assertions.
+ * Post-fork-extraction delta:
+ *   - `signWithRnd(sk, msg, rnd)` → `ml_dsa44eth.sign(msg, sk, {extraEntropy: rnd})`
+ *     (noble `DSA.sign` accepts `extraEntropy` directly; no repo-side wrapper).
+ *   - AC-4-5 G2 instrumented path (`signWithXofInstrumented` + rejection
+ *     counter) is DROPPED — final-signature byte-identity over the full
+ *     corpus is a superset of intermediate-state divergence detection
+ *     (LD-13 in `docs/extract-mldsaeth.md`). The previous rejection-
+ *     counter assertion was a lower-information-content oracle than the
+ *     signature byte-identity AC-4-1 already validates.
  *
  * Assertion style: `assertBytesEqual(..., "keccak-prg")` surfaces the
- * AC-3-4 factory discriminant on divergence. Counter assertion uses
- * `assert.ok` with an explicit message.
+ * AC-3-4 factory discriminant on divergence.
  *
- * Cost: noble-shape sign is ~200-300 ms / call × ~100 vectors × 2
- * passes ≈ 50 s. Comparable to Story 3's G1 KAT.
+ * Cost: noble-shape sign is ~200-300 ms / call × ~100 vectors ≈ 25 s.
  *
  * Pure `node:test` — no Hardhat runtime needed (signer is pure JS).
  */
 
-import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { ml_dsa44eth } from "@noble/post-quantum/ml-dsa.js";
 import { type Hex, hexToBytes } from "viem";
 
 import { loadKatVectors } from "../fixtures/kat/index.js";
 import { assertBytesEqual } from "../utils/assert-bytes.js";
-import { signWithXofInstrumented } from "./ml-dsa-eth.core.js";
-import { signWithRnd } from "./ml-dsa-eth.kat-internal.js";
-import { keccakXofFactory } from "./mldsa-encoding.js";
 
 describe("G2 — ml-dsa-eth signer KAT byte-identity (AC-4-1)", () => {
   const vectors = loadKatVectors("mldsa-eth");
 
-  it(`all ${vectors.length} vectors: signWithRnd(sk, msg, rnd) matches v.signature byte-for-byte`, () => {
+  it(`all ${vectors.length} vectors: ml_dsa44eth.sign(msg, sk, {extraEntropy: rnd}) matches v.signature byte-for-byte`, () => {
     for (const v of vectors) {
-      const sig = signWithRnd(
-        hexToBytes(v.secretKey as Hex),
+      const sig = ml_dsa44eth.sign(
         hexToBytes(v.message as Hex),
-        hexToBytes(v.rnd as Hex),
+        hexToBytes(v.secretKey as Hex),
+        { extraEntropy: hexToBytes(v.rnd as Hex) },
       );
       assertBytesEqual(
-        hexToBytes(sig as Hex),
+        sig,
         hexToBytes(v.signature as Hex),
         `vec ${v.id} sig`,
         "keccak-prg",
       );
     }
-  });
-});
-
-describe("G2 — rejection-loop counter (AC-4-5)", () => {
-  const vectors = loadKatVectors("mldsa-eth");
-
-  it(`signWithXofInstrumented: Σiterations > ${vectors.length} across all vectors`, () => {
-    let total = 0;
-    let minIters = Number.POSITIVE_INFINITY;
-    let maxIters = 0;
-    for (const v of vectors) {
-      const { iterations } = signWithXofInstrumented(
-        hexToBytes(v.secretKey as Hex),
-        hexToBytes(v.message as Hex),
-        hexToBytes(v.rnd as Hex),
-        new Uint8Array(0),
-        keccakXofFactory,
-      );
-      total += iterations;
-      if (iterations < minIters) minIters = iterations;
-      if (iterations > maxIters) maxIters = iterations;
-    }
-    const avg = (total / vectors.length).toFixed(2);
-    console.info(
-      `[G2 rejection stats] vectors=${vectors.length} totalIters=${total} avg=${avg} min=${minIters} max=${maxIters}`,
-    );
-    assert.ok(
-      total > vectors.length,
-      `AC-4-5: totalIterations ${total} must strictly exceed vectorCount ${vectors.length} — at least one vector should require >1 rejection iteration`,
-    );
-    // Hardening beyond AC-4-5: guard against silent reject-loop
-    // degradation that would still pass the minimum threshold (e.g., a
-    // single vector spiking while all others hit on iteration 1). Dev
-    // Notes predict avg ≈ 1.5-2.0 on this corpus; maxIters observed ≈ 16.
-    // `>=2` is a loose fence well below observed — flips only if the
-    // rejection loop genuinely stops firing on the vast majority of
-    // vectors.
-    assert.ok(
-      maxIters >= 2,
-      `AC-4-5 regression fence: expected at least one vector with >=2 iterations (observed max=${maxIters}); this catches silent reject-loop degradation the strict-inequality AC alone would miss`,
-    );
   });
 });

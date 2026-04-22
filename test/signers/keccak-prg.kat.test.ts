@@ -28,7 +28,7 @@ import { describe, it } from "node:test";
 import { bytesToHex, hexToBytes } from "viem";
 
 import { loadPrgVectors } from "../fixtures/kat/index.js";
-import { createKeccakPrg } from "./keccak-prg.js";
+import { createKeccakPrg } from "@noble/post-quantum/utils-eth.js";
 
 describe("Keccak-PRG KAT (G0 — byte-identity against Python ref + Zhenfei C canonical)", () => {
   for (const vector of loadPrgVectors()) {

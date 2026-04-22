@@ -21,14 +21,14 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { hexToBytes, type Hex } from "viem";
-
-import { assertBytesEqual } from "../utils/assert-bytes.js";
 import {
-  preparePublicKeyForDeployment,
+  encodeMlDsaPublicKey,
   shake128XofFactory,
   shake256XofFactory,
-} from "./mldsa-encoding.js";
+} from "@noble/post-quantum/utils-eth.js";
+import { bytesToHex, type Hex, hexToBytes } from "viem";
+
+import { assertBytesEqual } from "../utils/assert-bytes.js";
 
 const THIS_FILE = fileURLToPath(import.meta.url);
 const FIXTURE_PATH = path.resolve(
@@ -65,14 +65,17 @@ describe("mldsa-encoding NIST regression (AC-3-3)", () => {
   it("all 100 NIST vectors reshape byte-identical to pre-refactor baseline", () => {
     for (const v of fixture.vectors) {
       const pk = hexToBytes(v.pk);
-      const reshapedHex = preparePublicKeyForDeployment(
+      const actual = encodeMlDsaPublicKey(
         pk,
         shake256XofFactory,
         shake128XofFactory,
       );
-      const actual = hexToBytes(reshapedHex);
       const expected = hexToBytes(v.expectedReshapedPk);
       assertBytesEqual(actual, expected, `nist-regression ${v.id}`, "shake256");
+      // Extra hex-shape anchor (would catch unexpected bytesToHex drift).
+      if (bytesToHex(actual) !== v.expectedReshapedPk) {
+        throw new Error(`nist-regression ${v.id}: hex-shape round-trip mismatch`);
+      }
     }
   });
 });

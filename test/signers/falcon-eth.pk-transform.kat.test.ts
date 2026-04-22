@@ -47,12 +47,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { encodeFalconPublicKey } from "@noble/post-quantum/utils-eth.js";
+import {
+  encodeFalconPublicKey,
+  keccakXofFactory,
+} from "@noble/post-quantum/utils-eth.js";
 import { decodeAbiParameters, hexToBytes } from "viem";
 
 import { loadKatVectors } from "../fixtures/kat/index.js";
 import { preparePublicKeyForDeployment } from "./falcon-eth.js";
-import { keccakXofFactory } from "./mldsa-encoding.js";
 
 /** AC-2 structural bound: every compact element < 2^256. */
 const UINT256_BOUND = 1n << 256n;

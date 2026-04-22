@@ -27,16 +27,16 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { hexToBytes, type Hex } from "viem";
+import {
+  encodeMlDsaPublicKey,
+  keccakXofFactory,
+  shake128XofFactory,
+  shake256XofFactory,
+} from "@noble/post-quantum/utils-eth.js";
+import { type Hex, hexToBytes } from "viem";
 
 import { loadKatVectors } from "../fixtures/kat/index.js";
 import { assertBytesEqual } from "../utils/assert-bytes.js";
-import {
-  keccakXofFactory,
-  preparePublicKeyForDeployment,
-  shake128XofFactory,
-  shake256XofFactory,
-} from "./mldsa-encoding.js";
 
 const THIS_FILE = fileURLToPath(import.meta.url);
 const NIST_FIXTURE_PATH = path.resolve(
@@ -79,12 +79,11 @@ describe("mldsa-encoding XOF isolation (AC-3-5, AC-3-4)", () => {
     const ethPk = hexToBytes(ethVec.publicKey as Hex);
 
     // Pass 1 — SHAKE on NIST pk → must equal NIST regression golden.
-    const pass1Hex = preparePublicKeyForDeployment(
+    const pass1 = encodeMlDsaPublicKey(
       nistPk,
       shake256XofFactory,
       shake128XofFactory,
     );
-    const pass1 = hexToBytes(pass1Hex);
     assertBytesEqual(
       pass1,
       nistGolden,
@@ -93,22 +92,20 @@ describe("mldsa-encoding XOF isolation (AC-3-5, AC-3-4)", () => {
     );
 
     // Pass 2 — Keccak on ETH pk → capture as per-invocation baseline.
-    const pass2Hex = preparePublicKeyForDeployment(
+    const pass2 = encodeMlDsaPublicKey(
       ethPk,
       keccakXofFactory,
       keccakXofFactory,
     );
-    const pass2 = hexToBytes(pass2Hex);
 
     // Pass 3 — SHAKE on NIST pk again. Must equal pass 1 AND the golden.
     // Proves the intervening Keccak call did not leak factory state into
     // the SHAKE pipeline (or vice versa through a shared module-level cache).
-    const pass3Hex = preparePublicKeyForDeployment(
+    const pass3 = encodeMlDsaPublicKey(
       nistPk,
       shake256XofFactory,
       shake128XofFactory,
     );
-    const pass3 = hexToBytes(pass3Hex);
     assertBytesEqual(
       pass3,
       pass1,
@@ -125,12 +122,11 @@ describe("mldsa-encoding XOF isolation (AC-3-5, AC-3-4)", () => {
     // Pass 4 — Keccak on ETH pk again. Must equal pass 2.
     // Proves the intervening SHAKE call (pass 3) did not leak state into
     // the Keccak-PRG pipeline.
-    const pass4Hex = preparePublicKeyForDeployment(
+    const pass4 = encodeMlDsaPublicKey(
       ethPk,
       keccakXofFactory,
       keccakXofFactory,
     );
-    const pass4 = hexToBytes(pass4Hex);
     assertBytesEqual(
       pass4,
       pass2,
