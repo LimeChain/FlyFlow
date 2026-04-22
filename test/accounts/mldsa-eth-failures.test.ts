@@ -1,10 +1,10 @@
 /**
- * Story 5 Task 5 — MlDsaEthAccount failure classes (AC-5-4, AC-5-5).
+ * MlDsaEthAccount failure classes (AC-5-4, AC-5-5).
  *
  * Three rejection paths an MlDsaEthAccount must distinguish — structurally
  * identical to test/accounts/mldsa-failures.test.ts with three swaps
  * (fixture → mldsa-eth, account → MlDsaEthAccount, signer → ml-dsa-eth
- * direct imports per the Task 4 import-boundary note):
+ * production wrapper at `../signers/ml-dsa-eth.ts`):
  *
  *   AC-5-4a: Crypto failure (wrong signer) → SIG_VALIDATION_FAILED (1n).
  *   AC-5-4b: Bit-flipped but structurally-parseable signature → 1n.
@@ -47,11 +47,11 @@
  * fallback bound to the account address). No chai, no hardhat-chai-
  * matchers.
  *
- * Import boundary: same as Task 4 — signWithRnd is not needed here
- * (we use production signUserOp throughout, since crypto-invalid and
- * malformed assertions don't require KAT determinism). keygen +
- * signUserOp direct-imported from ../signers/ml-dsa-eth.js, sidestepping
- * the dispatcher extension in Task 6.
+ * Import boundary: production `signUserOp` used throughout (crypto-invalid
+ * and malformed assertions don't require KAT determinism — deterministic
+ * signing via `ml_dsa44eth.sign(msg, sk, { extraEntropy })` is exercised
+ * in the sibling `mldsa-eth.test.ts`). `keygen` + `signUserOp` are
+ * imported directly from `../signers/ml-dsa-eth.js`.
  *
  * Framework: node:test + node:assert/strict (A-001).
  */

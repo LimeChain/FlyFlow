@@ -1,43 +1,33 @@
 /**
- * Story 5 Task 4 — G4 happy path + AC-FLOW-1 end-to-end test.
+ * MlDsaEthAccount — G4 happy path + AC-FLOW-1 end-to-end test.
  *
  * Two it blocks:
  *
  *   1. AC-5-3 (G4 happy path) — iterate N .rsp vectors, for each:
  *      setKey the reshaped public key, deploy a fresh proxy, sign the
- *      userOp with `signWithRnd` (deterministic .rsp rnd), submit through
- *      EntryPoint's `validateUserOp` simulator, assert
- *      SIG_VALIDATION_SUCCESS (0n).
+ *      userOp with `ml_dsa44eth.sign(msg, sk, { extraEntropy: rnd })`
+ *      (deterministic .rsp rnd), submit through EntryPoint's
+ *      `validateUserOp` simulator, assert SIG_VALIDATION_SUCCESS (0n).
  *
  *   2. AC-FLOW-1 — 5 iterations of a full fresh-keypair end-to-end:
  *      `keygen()` from ml-dsa-eth.ts → `registerPublicKey` →
  *      fresh proxy → `signUserOp` (production path, hedged rnd via
- *      `crypto.getRandomValues`) → `validateUserOp` simulate → assert
+ *      noble's `randomBytes`) → `validateUserOp` simulate → assert
  *      success. Proves the production `signUserOp` path composes with
  *      the on-chain verifier end-to-end, not just the KAT signer.
  *
- * Vector count (AC-5-3) — N constant:
- * -----------------------------------
- * USER DECISION (2026-04-18): smoke-first. Initial landing was N = 5
- * to validate the scaffolding end-to-end and measure runtime; at Gate 5
- * the empirical measurement showed ~80 ms/vector (full 100 ≈ 8 s total,
- * well under the 3 min budget), so N was tuned up to 100 to cover the
- * full KAT corpus per the AC's "all ~100 vectors" literal wording.
- * `N` remains a top-of-file constant for easy future tuning.
+ * Vector count (AC-5-3): `AC_5_3_VECTOR_COUNT` = 100 — full KAT corpus
+ * per the AC's "all ~100 vectors" literal wording. Empirical runtime
+ * ~80 ms/vector (8 s total), well under the 3 min budget.
  *
  * Failure-class tests (AC-5-4 crypto-invalid + AC-5-5 malformed) live
- * in the sibling `mldsa-eth-failures.test.ts` (Task 5).
+ * in the sibling `mldsa-eth-failures.test.ts`.
  *
- * Import boundary (per story Dev Notes §"test/accounts/** is NOT in the
- * AC-3-7 grep scope"):
- *   - `signWithRnd` from `../signers/ml-dsa-eth.kat-internal.js` is
- *     PERMITTED here (AC-3-7 enforcement is file-path-scoped and does
- *     not cover `test/accounts/**`).
- *   - `keygen` + `signUserOp` imported DIRECTLY from
- *     `../signers/ml-dsa-eth.js` rather than through the dispatcher in
- *     `../signers/index.js` — Task 6 extends that dispatcher's `Scheme`
- *     union to include `"mldsa-eth"`, but this test file lands before
- *     Task 6 commits so we sidestep the ordering.
+ * Post-fork-extraction: deterministic signing routes through the fork's
+ * `ml_dsa44eth.sign` accepting `extraEntropy`; the previous repo-side
+ * `signWithRnd` wrapper (at `ml-dsa-eth.kat-internal.ts`) is gone.
+ * `keygen` + `signUserOp` are imported directly from the repo's thin
+ * wrapper at `../signers/ml-dsa-eth.js`.
  *
  * Framework: node:test + node:assert/strict (A-001).
  */
@@ -45,8 +35,15 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { ml_dsa44eth } from "@noble/post-quantum/ml-dsa.js";
 import hre from "hardhat";
-import { type Hex, encodeFunctionData, hexToBytes, parseEther } from "viem";
+import {
+  bytesToHex,
+  encodeFunctionData,
+  type Hex,
+  hexToBytes,
+  parseEther,
+} from "viem";
 
 import { loadKatVectors } from "../fixtures/kat/index.js";
 import {
@@ -58,7 +55,6 @@ import type {
   UnsignedUserOp,
 } from "../signers/index.js";
 import { keygen, signUserOp } from "../signers/ml-dsa-eth.js";
-import { signWithRnd } from "../signers/ml-dsa-eth.kat-internal.js";
 
 const SIG_VALIDATION_SUCCESS = 0n;
 const ZERO_BYTES32 = `0x${"0".repeat(64)}` as Hex;
@@ -177,15 +173,18 @@ describe("G4 — MlDsaEthAccount happy path (AC-5-3)", () => {
           stack.entryPoint,
           { ...userOp, signature: "0x" },
         );
-        // signWithRnd → deterministic signature per .rsp rnd; this is
-        // what AC-5-3 asserts. Production signUserOp (hedged rnd) is
-        // exercised in the AC-FLOW-1 block below.
-        const sigHex = signWithRnd(
-          hexToBytes(v.secretKey as Hex),
+        // Deterministic signature per .rsp rnd via noble's `extraEntropy`
+        // seam — this is what AC-5-3 asserts. Production signUserOp
+        // (hedged rnd) is exercised in the AC-FLOW-1 block below.
+        const sigBytes = ml_dsa44eth.sign(
           hexToBytes(userOpHash),
-          hexToBytes(v.rnd as Hex),
+          hexToBytes(v.secretKey as Hex),
+          { extraEntropy: hexToBytes(v.rnd as Hex) },
         );
-        const signed: PackedUserOperation = { ...userOp, signature: sigHex };
+        const signed: PackedUserOperation = {
+          ...userOp,
+          signature: bytesToHex(sigBytes),
+        };
 
         const validationData = await simulateValidateUserOp(
           account,
