@@ -8,7 +8,9 @@
  * - Production `keygen()` hedging — two consecutive calls return byte-distinct
  *   public keys (entropy from `globalThis.crypto.getRandomValues`).
  * - Production `keygen()` returns 897 B pk + 1281 B sk.
- * - Seed-length rejection at the fork boundary — noble's `falcon512.keygen`
+ * - Seed-length rejection at the fork boundary — noble's `falcon512paddedEth.keygen`
+ *   (whose keygen body is inherited from noble's `falcon512`; Falcon's keygen path
+ *   does not consume the HashToPoint primitive that distinguishes the two variants)
  *   uses `abytes(seed, 48, 'seed')` which throws on non-48-byte or non-
  *   `Uint8Array` inputs. Post-extraction, the repo does NOT wrap this with
  *   a `SignerInputError`; tests assert on noble's native error class
@@ -28,7 +30,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { falcon512 } from "@noble/post-quantum/falcon.js";
+import { falcon512paddedEth } from "@noble/post-quantum/falcon.js";
 
 import { bytesEqual } from "../utils/assert-bytes.js";
 import { keygen } from "./falcon-eth.js";
@@ -53,21 +55,21 @@ describe("falcon-eth keygen surfaces (hedging + seed rejection)", () => {
   describe("seed-length rejection (noble's abytes, post-fork-extraction)", () => {
     it("rejects 47-byte seed with an Error (length mismatch)", () => {
       assert.throws(
-        () => falcon512.keygen(new Uint8Array(47)),
+        () => falcon512paddedEth.keygen(new Uint8Array(47)),
         (e: unknown) => e instanceof Error,
       );
     });
 
     it("rejects 49-byte seed with an Error (length mismatch)", () => {
       assert.throws(
-        () => falcon512.keygen(new Uint8Array(49)),
+        () => falcon512paddedEth.keygen(new Uint8Array(49)),
         (e: unknown) => e instanceof Error,
       );
     });
 
     it("rejects empty Uint8Array (0 B) with an Error", () => {
       assert.throws(
-        () => falcon512.keygen(new Uint8Array(0)),
+        () => falcon512paddedEth.keygen(new Uint8Array(0)),
         (e: unknown) => e instanceof Error,
       );
     });
@@ -75,7 +77,7 @@ describe("falcon-eth keygen surfaces (hedging + seed rejection)", () => {
     it("rejects non-Uint8Array (string) with an Error (type mismatch)", () => {
       assert.throws(
         () =>
-          falcon512.keygen("not-bytes" as unknown as Uint8Array),
+          falcon512paddedEth.keygen("not-bytes" as unknown as Uint8Array),
         (e: unknown) => e instanceof Error,
       );
     });

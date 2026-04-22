@@ -292,7 +292,7 @@ Repo-side consumption:
 
 ```ts
 // test/signers/falcon-eth.ts — thin ERC-4337 glue only
-import { falcon512, falcon512paddedEth } from "@noble/post-quantum/falcon.js";
+import { falcon512paddedEth } from "@noble/post-quantum/falcon.js";
 import {
   encodeFalconPublicKey,
   encodeFalconSignature,

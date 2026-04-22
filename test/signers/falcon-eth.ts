@@ -6,7 +6,7 @@
  * extraction, this module holds only the repo-local seams:
  *
  *   - `keygen()`            — sources a 48 B `innerSeed` from Web Crypto
- *                             and forwards to noble's `falcon512.keygen`.
+ *                             and forwards to noble's `falcon512paddedEth.keygen`.
  *   - `signUserOp(...)`     — computes `userOpHash`, calls
  *                             `falcon512paddedEth.sign` (Keccak-256
  *                             HashToPoint variant), re-encodes the detached
@@ -29,7 +29,7 @@
  * used by `test/signers/ml-dsa-eth.ts`.
  */
 
-import { falcon512, falcon512paddedEth } from "@noble/post-quantum/falcon.js";
+import { falcon512paddedEth } from "@noble/post-quantum/falcon.js";
 import {
   encodeFalconPublicKey,
   encodeFalconSignature,
@@ -47,14 +47,20 @@ import { computeUserOpHash } from "./userOpHash.js";
 /**
  * Generate a fresh Falcon-ETH keypair. Sources a 48 B `innerSeed` from
  * `globalThis.crypto.getRandomValues` and forwards to noble's
- * `falcon512.keygen` (which validates length via `abytes`).
+ * `falcon512paddedEth.keygen` (which validates length via `abytes`).
+ *
+ * Falcon's keygen path does not consume the HashToPoint primitive —
+ * that's only invoked during sign/verify. So `falcon512paddedEth.keygen(seed)`
+ * and `falcon512.keygen(seed)` produce byte-identical keypairs for the
+ * same seed; using the ETH variable keeps the "everything Falcon-ETH
+ * does goes through `falcon512paddedEth`" invariant.
  *
  * @returns `{ publicKey, secretKey }` — 897 B pk + 1281 B sk.
  */
 export function keygen(): Keypair {
   const innerSeed = new Uint8Array(48);
   globalThis.crypto.getRandomValues(innerSeed);
-  return falcon512.keygen(innerSeed);
+  return falcon512paddedEth.keygen(innerSeed);
 }
 
 /**
