@@ -249,7 +249,7 @@ Each ETH variant is covered by an ordered byte-identity chain. A red gate locali
 
 ### ML-DSA-ETH — fork-owned instance + encoders
 
-The fork at `github.com/LimeChain/noble-post-quantum-eth` (branch `falcon-eth-complete`) OWNS the full ML-DSA-ETH crypto surface — `ml_dsa44eth` is exported from `@noble/post-quantum/ml-dsa.js` alongside the NIST variants `ml_dsa44` / `ml_dsa65` / `ml_dsa87`, and the scheme-agnostic ETH helpers (`XofFactory`/`XofReader` contracts, the three factory adapters, `createKeccakPrg`, `encodeMlDsaPublicKey`) are exported from `@noble/post-quantum/utils-eth.js`.
+The fork at `github.com/LimeChain/noble-post-quantum-eth` (branch `eth-variants`) OWNS the full ML-DSA-ETH crypto surface — `ml_dsa44eth` is exported from `@noble/post-quantum/ml-dsa.js` alongside the NIST variants `ml_dsa44` / `ml_dsa65` / `ml_dsa87`, and the scheme-agnostic ETH helpers (`XofFactory`/`XofReader` contracts, the three factory adapters, `createKeccakPrg`, `encodeMlDsaPublicKey`) are exported from `@noble/post-quantum/utils-eth.js`.
 
 Fork layout:
 
@@ -281,7 +281,7 @@ KAT tests call noble primitives directly:
 
 ### Falcon-ETH — fork-owned instance + encoders
 
-The fork at `github.com/LimeChain/noble-post-quantum-eth` (branch `falcon-eth-complete`) OWNS the full Falcon-ETH crypto surface. Previously the fork carried only a minimal HashToPoint-injection seam with the encoders living in this repo; the falcon-eth extraction moved the ETH-specific primitives and wire-format encoders into the fork's `src/utils-eth.ts` under a public `./utils-eth` subpath. The extraction leaves upstream noble's API additively extended — `falcon512paddedEth` appears alongside `falcon512` / `falcon512padded` with the same `Falcon` contract; `genFalcon` and `falcon512paddedOpts` remain fork-internal.
+The fork at `github.com/LimeChain/noble-post-quantum-eth` (branch `eth-variants`) OWNS the full Falcon-ETH crypto surface. Previously the fork carried only a minimal HashToPoint-injection seam with the encoders living in this repo; the falcon-eth extraction moved the ETH-specific primitives and wire-format encoders into the fork's `src/utils-eth.ts` under a public `./utils-eth` subpath. The extraction leaves upstream noble's API additively extended — `falcon512paddedEth` appears alongside `falcon512` / `falcon512padded` with the same `Falcon` contract; `genFalcon` and `falcon512paddedOpts` remain fork-internal.
 
 Fork src layout (strict DAG: `utils-eth.ts` is leaf, `falcon.ts` imports from it):
 
@@ -307,7 +307,7 @@ KAT tests call noble primitives directly:
 - G4 signer — inline `encodeFalconSignature(falcon512paddedEth.sign(msg, sk, { random }))` with the DRBG driving `random`.
 - G5 pk-transform — `preparePublicKeyForDeployment(rawPk, keccakXofFactory)` (thin repo shim) for the `uint256[]` ABI payload; `decodeAbiParameters(encodeFalconPublicKey(rawPk))` directly for structural-sub-check decode.
 
-**Dependency pin (`package.json`):** during iteration, `"@noble/post-quantum": "file:../noble-post-quantum-eth"` — local symlink to the fork checkout. Edits to `src/*.ts` in the fork require `npm run build` in the fork (or `tsc --watch` in a dedicated terminal) to regenerate the dist the consumer imports. npm does NOT hoist a `file:` pin's transitive deps, so the three fork runtime deps (`@noble/{ciphers,curves,hashes}@~2.2.0`) are also listed explicitly in this repo's `devDependencies` so test files can import them directly. Post-stabilization, the pin will flip back to `git+ssh://…#<sha>` (SHA, not branch) — a future hardening step once the fork goes read-only.
+**Dependency pin (`package.json`):** `"@noble/post-quantum": "git+ssh://git@github.com/LimeChain/noble-post-quantum-eth.git#eth-variants"` — branch-ref pin against the fork's `eth-variants` branch. `npm install` clones, runs the fork's `prepare` script (`tsc`) to regenerate the `*.js` / `*.d.ts` dist the consumer imports, and records the resolved SHA in `package-lock.json` as a drift guard. The three fork sub-deps (`@noble/{ciphers,curves,hashes}@~2.2.0`) are ALSO listed explicitly in this repo's `devDependencies` because this repo's test files import them directly (e.g. `rngAesCtrDrbg256` from `@noble/ciphers/aes.js`) — declaring them as direct deps keeps the import→manifest mapping auditable and decouples our pinned version range from whatever the fork tracks. Post-stabilization hardening = replace `#eth-variants` with a `#<40-hex-sha>` commit pin once the fork goes read-only.
 
 **`compactPoly256` consolidation — done.** During the Falcon-ETH transition the helper was deliberately duplicated between the fork's new `utils-eth.ts` and the repo's `test/signers/mldsa-encoding.ts`. The ml-dsa-eth extraction removed the repo copy; the fork's copy is now the sole source of truth for both schemes.
 
@@ -344,7 +344,7 @@ Tests always assert on `.code`, never on message strings. The `code` contract is
 
 - **Submodule pinning.** `.gitmodules` records URLs; the parent-tree gitlink records SHAs. KAT fixtures embed `submoduleSource` + `submoduleSha`; loader fails loudly on drift. Current pins: `ETHFALCON @ 03ed0d60c67087527de7c4a3c1c469b89611bd68`, `ETHDILITHIUM @ b9ca7f72526ecc696230d3c774a6e2c12c9b37c2`.
 - **Hardhat 3 `remappings.txt`** rewrites ETHFALCON's bare imports (`sstore2/`, `InterfaceVerifier/`) to the in-tree submodule paths. HH3's `parseNpmDirectImport` tightened regex rejects the camel-case `InterfaceVerifier/…` — remapping is the documented HH3 escape hatch; NFR-5 (zero submodule modifications) preserved.
-- **Fork dependency posture.** During iteration, `@noble/post-quantum` pinned to `file:../noble-post-quantum-eth` (local symlink) on the fork's `falcon-eth-complete` branch. `package-lock.json` records no resolved SHA for a `file:` pin — the trust anchor during iteration is the local checkout itself. Future hardening = flip pin to `git+ssh://…#<sha>` (SHA-pinned, not branch-ref) once the fork goes read-only; that unlocks `package-lock.json` recording the resolved SHA as a drift guard.
+- **Fork dependency posture.** `@noble/post-quantum` pinned to `git+ssh://git@github.com/LimeChain/noble-post-quantum-eth.git#eth-variants` — branch-ref pin; `package-lock.json` records the resolved SHA per install as a drift guard. Future hardening = replace `#eth-variants` with a `#<40-hex-sha>` commit pin once the fork goes read-only, so the manifest itself (not just the lockfile) asserts the trust anchor.
 - **Dev-oracle isolation (NFR-3).** `npm test` never spawns a Python interpreter. Only `scripts/generate-kat-fixtures.ts` does, and it's gated behind `npm run kat:regen`.
 - **Test-override safety (NFR-9).** Every env var that alters fixture-gen behaviour (path redirection, Python version/deps probe, submodule-pin bypass) is (a) regex-validated at ingest, (b) gated behind `ALLOW_TEST_OVERRIDES=1` sentinel. Sentinel is set only by the test harness. Operationalises the universal rule "security-relevant test overrides need runtime gates, not just docs." Python subprocesses use `execFileSync` argv form with regex-validated embedded values — no shell expansion.
 - **No secrets in fixtures.** KAT vectors include test secret keys by design; README attribution states this posture.
@@ -376,8 +376,8 @@ Tests always assert on `.code`, never on message strings. The `code` contract is
 | Package                                         | Version pin                                                              | Purpose                                                                    |
 | ----------------------------------------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
 | `@account-abstraction/contracts`                | `^0.7.0`                                                                 | `SimpleAccount`, `IEntryPoint`, `PackedUserOperation`, `Helpers.sol` sentinels |
-| `@noble/post-quantum`                           | `file:../noble-post-quantum-eth` (local symlink during iteration; SHA-pinned post-stabilization) | Fork — owns the full Falcon-ETH crypto surface (`falcon512paddedEth` + encoders + `hashToPointEVM`) AND the full ML-DSA-ETH crypto surface (`ml_dsa44eth` + XOF abstractions + Keccak-PRG primitive + `encodeMlDsaPublicKey`) via the `./utils-eth` subpath; consumed by all PQC signers |
-| `@noble/ciphers`                                | `~2.2.0`                                                                 | `rngAesCtrDrbg256`, `chacha20`. Explicit devDep because npm does not hoist transitive deps from `file:` pins |
+| `@noble/post-quantum`                           | `git+ssh://git@github.com/LimeChain/noble-post-quantum-eth.git#eth-variants` (branch-ref; SHA-pinned post-stabilization) | Fork — owns the full Falcon-ETH crypto surface (`falcon512paddedEth` + encoders + `hashToPointEVM`) AND the full ML-DSA-ETH crypto surface (`ml_dsa44eth` + XOF abstractions + Keccak-PRG primitive + `encodeMlDsaPublicKey`) via the `./utils-eth` subpath; consumed by all PQC signers |
+| `@noble/ciphers`                                | `~2.2.0`                                                                 | `rngAesCtrDrbg256`, `chacha20`. Explicit devDep because test files import it directly (not only via the fork's re-exports) |
 | `@noble/curves`                                 | `~2.2.0`                                                                 | secp256k1 for ECDSA + `abstract/modular.js#invert` for Falcon NTT bootstrap. Explicit devDep (same reason) |
 | `@noble/hashes`                                 | `~2.2.0`                                                                 | SHAKE-256/128, Keccak-256. Explicit devDep (same reason) |
 | `@nomicfoundation/hardhat-toolbox-viem`         | `^5.0.3`                                                                 | Viem-native HH3 test matchers + deploy helpers                             |
@@ -385,7 +385,7 @@ Tests always assert on `.code`, never on message strings. The `code` contract is
 | `typescript`                                    | `^5.9.3`                                                                 | `tsc --noEmit` for type gates (exhaustive union, Record exhaustiveness)    |
 | `viem`                                          | `^2.43.0`                                                                | Primary on-chain client                                                    |
 
-Transitive: OpenZeppelin (`ERC1967Proxy`). (The `@noble/{hashes,ciphers,curves}` packages are now explicit devDeps above — see the `file:` pin note on `@noble/post-quantum`.)
+Transitive: OpenZeppelin (`ERC1967Proxy`). (The `@noble/{hashes,ciphers,curves}` packages are explicit devDeps above because test files import them directly — see the pin note on `@noble/post-quantum`.)
 
 ### Git submodules
 

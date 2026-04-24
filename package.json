@@ -15,7 +15,7 @@
     "@noble/ciphers": "~2.2.0",
     "@noble/curves": "~2.2.0",
     "@noble/hashes": "~2.2.0",
-    "@noble/post-quantum": "file:../noble-post-quantum-eth",
+    "@noble/post-quantum": "git+ssh://git@github.com/LimeChain/noble-post-quantum-eth.git#eth-variants",
     "@nomicfoundation/hardhat-toolbox-viem": "^5.0.3",
     "@types/node": "^22.19.17",
     "hardhat": "^3.3.0",
