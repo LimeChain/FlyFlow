@@ -1,4 +1,4 @@
-# pqc-4337-laim
+# FlyFlow
 
 Post-quantum cryptography integration for ERC-4337 account abstraction, using ZKNox's audited FALCON and DILITHIUM Solidity implementations.
 
@@ -31,8 +31,8 @@ Submodule source is never modified in-tree (NFR-5). Any necessary adapter logic 
 1. Clone the repository and initialize submodules:
 
    ```bash
-   git clone https://github.com/<owner>/pqc-4337-laim
-   cd pqc-4337-laim
+   git clone https://github.com/<owner>/flyflow
+   cd flyflow
    git submodule update --init --recursive
    ```
 

@@ -4,7 +4,7 @@ pragma solidity 0.8.34;
 import {KeccakPrng, initPrng, refill} from "../../ETHDILITHIUM/src/ZKNOX_keccak_prng.sol";
 
 /// @title KeccakPrngHarness
-/// @author pqc-4337-laim
+/// @author FlyFlow
 /// @notice Thin viem-deployable wrapper around the free functions exported
 ///         by `ETHDILITHIUM/src/ZKNOX_keccak_prng.sol`. The ZKNox source
 ///         declares `struct KeccakPrng` + free functions `initPrng`,

@@ -8,7 +8,7 @@ supersedes:
   - docs/.archive-falcon-eth/architecture.md
 ---
 
-# Architecture: pqc-4337-laim
+# Architecture: FlyFlow
 
 Five ERC-4337 account types share a single EntryPoint, a single JS/TS signer dispatcher, and a single 5-scheme gas benchmark. Each account delegates `_validateSignature` to a different on-chain verifier. The Keccak-based "ETH" variants (ML-DSA-ETH, Falcon-ETH) are optimised for on-chain gas and derive from the same ZKNoxHQ research line; the NIST variants (`falcon`, `mldsa`) are baselines.
 

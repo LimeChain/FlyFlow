@@ -1,6 +1,7 @@
 {
-  "name": "pqc-4337-laim",
+  "name": "flyflow",
   "private": true,
+  "license": "GPL-3.0-or-later",
   "type": "module",
   "scripts": {
     "compile": "hardhat compile 2>&1 | tee compile.log && node scripts/check-compile-warnings.cjs compile.log",

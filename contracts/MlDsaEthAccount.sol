@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0
+// SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity 0.8.34;
 
 import {SimpleAccount} from "@account-abstraction/contracts/samples/SimpleAccount.sol";
@@ -8,7 +8,7 @@ import {SIG_VALIDATION_SUCCESS, SIG_VALIDATION_FAILED} from "@account-abstractio
 import {ZKNOX_ethdilithium} from "../ETHDILITHIUM/src/ZKNOX_ethdilithium.sol";
 
 /// @title MlDsaEthAccount
-/// @author pqc-4337-laim
+/// @author FlyFlow
 /// @notice ERC-4337 v0.7 account that delegates signature verification to a
 ///         ZKNoxHQ ETHDILITHIUM ETH-variant verifier (`ZKNOX_ethdilithium`)
 ///         — the Keccak-PRG fork of ML-DSA-44. Stores the SSTORE2-pointer
